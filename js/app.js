@@ -33,6 +33,8 @@ function cacheEls() {
   els.streak = $('#streak-val');
   els.goal = $('#goal-val');
   els.weakList = $('#weak-list');
+  els.masteredList = $('#mastered-list');
+  els.masteryCount = $('#mastery-count');
   els.history = $('#history-bars');
   els.summary = $('#summary');
   els.summaryBody = $('#summary-body');
@@ -207,11 +209,55 @@ function formatEta(eta) {
   return `~${Math.round(m)} min`;
 }
 
+// Signed delta with an arrow + colour class (▲ good / ▼ eased off / – flat).
+function deltaChip(value, digits = 0, suffix = '') {
+  const v = Number(value) || 0;
+  const rounded = digits ? v.toFixed(digits) : Math.round(v);
+  if (Math.abs(v) < (digits ? 0.5 / 10 ** digits : 0.5)) return `<span class="delta flat">–</span>`;
+  const up = v > 0;
+  const mag = digits ? Math.abs(v).toFixed(digits) : Math.abs(Math.round(v));
+  return `<span class="delta ${up ? 'up' : 'down'}">${up ? '▲' : '▼'}${mag}${suffix}</span>`;
+}
+
 function showSummary(res) {
   endUiReset();
+  const cmp = Stats.sessionComparison();
+  const prog = Engine.masteryProgress();
+  const mastered = Engine.keysMasteredThisSession();
+  const target = Engine.targetKey();
+
+  // 1. improvement trend vs. recent average (or a baseline note on the first run)
+  let trend;
+  if (!cmp.hasHistory) {
+    trend = `<p class="trend baseline">Baseline set — finish another session to see your trend.</p>`;
+  } else {
+    const best = cmp.isBestWpm ? `<span class="pb">🎉 New best!</span>` : '';
+    trend = `<p class="trend">vs. your recent average:
+      WPM ${deltaChip(cmp.wpmDelta)} &nbsp; accuracy ${deltaChip(cmp.accDelta * 100, 0, '%')} ${best}</p>`;
+  }
+
+  // 2. progress this session + overall
+  let progressLine;
+  if (mastered.length) {
+    const chips = mastered.map((k) => `<span class="chip good">${escapeHtml(labelForKey(k))}</span>`).join(' ');
+    progressLine = `<p class="progress"><strong>Mastered this session:</strong> ${chips}</p>`;
+  } else if (target) {
+    progressLine = `<p class="progress">No new keys yet — keep drilling <strong>${escapeHtml(labelForKey(target))}</strong> to unlock the next.</p>`;
+  } else {
+    progressLine = `<p class="progress">Every key in this mode is mastered — nice work.</p>`;
+  }
+  const progressCount = `<p class="progress-count">${prog.mastered} / ${prog.total} keys mastered</p>`;
+
+  // 3. weak spots with concrete numbers
   const weak = res.weakest.length
-    ? res.weakest.map((w) => `<span class="chip">${escapeHtml(labelForKey(w.keyId))}</span>`).join(' ')
+    ? res.weakest.slice(0, 3).map((w) => {
+        const err = Math.round(w.errorRate * 100);
+        const ms = Math.round(w.avgLatency);
+        const detail = err >= 8 ? `${err}% errors` : (ms ? `${ms} ms` : 'new');
+        return `<span class="chip">${escapeHtml(labelForKey(w.keyId))} · ${detail}</span>`;
+      }).join(' ')
     : '<em>none yet — nice and even</em>';
+
   els.summaryBody.innerHTML = `
     <div class="summary-grid">
       <div><span class="big">${Math.round(res.wpm)}</span><label>WPM</label></div>
@@ -219,9 +265,24 @@ function showSummary(res) {
       <div><span class="big">${res.chars}</span><label>characters</label></div>
       <div><span class="big">${res.streak}🔥</span><label>day streak</label></div>
     </div>
+    ${trend}
     ${res.advancedTo ? `<p class="advanced">✅ You passed <strong>${escapeHtml(res.advancedTo)}</strong> — new keys unlocked!</p>` : ''}
-    <p class="weak-line"><strong>Focus next:</strong> ${weak}</p>`;
+    ${progressLine}
+    ${progressCount}
+    <p class="weak-line"><strong>Work on:</strong> ${weak}</p>
+    <p class="encourage">${encouragement(cmp, mastered.length)}</p>`;
   els.summary.classList.add('open');
+}
+
+// One honest, kind line. A slower session isn't failure — WPM dips when a hard
+// new key is introduced, which is expected.
+function encouragement(cmp, masteredCount) {
+  if (cmp.isBestWpm) return 'Personal best — you\'re on a roll. 🚀';
+  if (masteredCount > 0) return `You locked in ${masteredCount} new key${masteredCount > 1 ? 's' : ''} — that\'s real progress.`;
+  if (!cmp.hasHistory) return 'Great start. Consistency is what builds speed — see you tomorrow.';
+  if (cmp.wpmDelta > 1) return 'Faster than your recent average — keep it up.';
+  if (cmp.wpmDelta < -1) return 'A bit slower today — normal when you\'re drilling a tough new key. Stick with it.';
+  return 'Steady and consistent — that\'s exactly how speed compounds.';
 }
 
 // --- settings & panel ---------------------------------------------------------
@@ -268,6 +329,13 @@ function refreshStatsPanel() {
   els.weakList.innerHTML = weak.length
     ? weak.map((w) => `<span class="chip" title="${Math.round(w.errorRate * 100)}% errors, ${Math.round(w.avgLatency)}ms">${escapeHtml(labelForKey(w.keyId))}</span>`).join('')
     : '<em>Practice a bit and your weak keys will appear here.</em>';
+
+  const mastered = Engine.masteredKeys();
+  const prog = Engine.masteryProgress();
+  els.masteryCount.textContent = prog.total ? `${prog.mastered} / ${prog.total}` : '';
+  els.masteredList.innerHTML = mastered.length
+    ? mastered.map((k) => `<span class="chip good">${escapeHtml(labelForKey(k))}</span>`).join('')
+    : '<em>Master your first key to see it here.</em>';
 
   const sessions = Stats.recentSessions(20);
   const max = Math.max(40, ...sessions.map((s) => s.wpm || 0));

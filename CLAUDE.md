@@ -74,6 +74,12 @@ model). Key pieces in `engine.js`:
   top of earlier stages. `'all'` = full pool, no target.
 - **Finger toggle**: `settings.showFingers` (home-screen checkbox) toggles
   `body.no-fingers`, which hides `#finger-hint`. Key colour tints stay on.
+- **Session feedback**: `showSummary()` (`app.js`) surfaces progress from data
+  already stored — `Stats.sessionComparison()` (this session vs. mean of prior ≤5;
+  `hasHistory`/`wpmDelta`/`accDelta`/`isBestWpm`), `Engine.keysMasteredThisSession()`
+  (via a `trackingStartCounter` snapshot in `startTracking()`, strict `>`),
+  `Engine.masteryProgress()`, and `Engine.weakest()`. `Engine.masteredKeys()` feeds
+  the side-panel "Keys mastered" card. No new persistence.
 
 ## Data model (`localStorage`)
 

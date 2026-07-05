@@ -421,12 +421,14 @@ export function maybeAdvanceStage() {
 let lastAnnouncedTarget = null;
 let paceSnapshots = [];   // { t, a } wall-time + target attempts; in-memory only
 let etaSmoothed = null;
+let trackingStartCounter = 0;   // seenCounter at session start; for "mastered this session"
 
 // Reset per-target tracking at session start (and whenever the target changes).
 export function startTracking() {
   lastAnnouncedTarget = null;
   paceSnapshots = [];
   etaSmoothed = null;
+  trackingStartCounter = Stats.seenCounter();
 }
 
 function resetPace() {
@@ -506,6 +508,30 @@ export function nextKeyEta() {
   const etaRaw = repsNeeded / Math.max(pace, 1);
   etaSmoothed = etaSmoothed == null ? etaRaw : 0.6 * etaSmoothed + 0.4 * etaRaw;
   return { minutes: etaSmoothed, keyId: target, measuring: false };
+}
+
+// --- progress views (for end-of-session summary + the panel) ------------------
+
+// Keys that crossed the mastery gate during the current session, in canonical order.
+export function keysMasteredThisSession() {
+  // Strict '>': within a session, keystrokes advance seenCounter past the start
+  // snapshot before any key can be marked, so masteredAt > start ⇔ mastered now.
+  return introductionOrder().filter((k) => {
+    const s = Stats.keyStat(k);
+    return s.mastered && s.masteredAt > trackingStartCounter;
+  });
+}
+
+// All mastered keys in the eligible pool, canonical order — the positive
+// counterpart to the "keys to focus on" list.
+export function masteredKeys() {
+  return introductionOrder().filter((k) => isMastered(k));
+}
+
+// How far through the current mode's gate-able keys the learner is.
+export function masteryProgress() {
+  const order = introductionOrder();
+  return { mastered: order.filter((k) => isMastered(k)).length, total: order.length };
 }
 
 export function stageLabel() {

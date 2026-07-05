@@ -39,6 +39,15 @@ No build step, no dependencies. Open `index.html` in a browser and start typing.
   tokens for numbers and symbols, and explicit prompts for special keys.
 - **Timed daily sessions** — pick a length (1/3/5/10/15 min), get a live countdown
   with running WPM and accuracy, and an end-of-session summary.
+- **Motivational session feedback** — the end-of-session summary shows whether
+  you're improving: your WPM and accuracy vs. your recent average (▲/▼), a
+  personal-best badge, the keys you mastered *this session*, overall
+  *N / total keys mastered*, your top weak spots with real numbers (error % / ms),
+  and an honest encouragement line (a slower session on a hard new key is framed
+  as expected, not failure).
+- **Keys-mastered list** — a side-panel card lists every key you've mastered
+  (green chips, curriculum order) with a running count — the positive counterpart
+  to "keys to focus on", so progress stays visible.
 - **Selectable levels** — a **Level** picker lets you jump straight to what you
   want to drill: *Adaptive (auto-level)* introduces keys one at a time through a
   curriculum (home → top → bottom → capitals → numbers → symbols → special keys);

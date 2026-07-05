@@ -219,6 +219,27 @@ export function recentSessions(n = 20) {
   return state.sessions.slice(-n);
 }
 
+// Compare the most-recent (just-recorded) session against the mean of the prior
+// few, for the end-of-session "am I improving?" readout. `recordSession` runs
+// before the summary is shown, so the current session is the last element.
+export function sessionComparison(window = 5) {
+  const s = state.sessions;
+  if (s.length < 2) return { hasHistory: false };
+  const cur = s[s.length - 1];
+  const prior = s.slice(-(window + 1), -1);   // up to `window` sessions before the current
+  const mean = (arr, f) => arr.reduce((a, x) => a + (f(x) || 0), 0) / arr.length;
+  const avgWpm = mean(prior, (x) => x.wpm);
+  const avgAcc = mean(prior, (x) => x.accuracy);
+  const isBestWpm = cur.wpm >= Math.max(...s.map((x) => x.wpm || 0));
+  return {
+    hasHistory: true,
+    curWpm: cur.wpm, avgWpm,
+    wpmDelta: cur.wpm - avgWpm,
+    accDelta: cur.accuracy - avgAcc,
+    isBestWpm,
+  };
+}
+
 // --- metrics helpers ----------------------------------------------------------
 
 // Standard WPM: (chars / 5) per minute.

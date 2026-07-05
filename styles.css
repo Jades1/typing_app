@@ -160,6 +160,21 @@ body.no-fingers .finger-hint { visibility: hidden; }
 .weak-line .chip { color: var(--text); }
 .modal-card .primary { margin-top: .6rem; }
 
+/* ---- richer session summary ---- */
+.trend { font-size: .95rem; margin: .4rem 0; }
+.trend.baseline { color: var(--muted); }
+.delta { font-weight: 700; font-variant-numeric: tabular-nums; }
+.delta.up { color: var(--good); }
+.delta.down { color: var(--muted); }
+.delta.flat { color: var(--muted); }
+.pb { color: var(--good); font-weight: 700; margin-left: .3rem; }
+.progress { font-size: .92rem; margin: .5rem 0 .1rem; }
+.progress-count { font-size: .8rem; color: var(--muted); margin: 0 0 .4rem; font-variant-numeric: tabular-nums; }
+.encourage { font-size: .9rem; color: var(--text); margin: .6rem 0 .2rem; font-style: italic; }
+/* mastered keys read as positive (green-tinted chips + count) */
+.chip.good { background: color-mix(in srgb, var(--good) 18%, var(--surface-2)); border-color: color-mix(in srgb, var(--good) 45%, var(--border)); color: var(--text); }
+.count { font-size: .72rem; font-weight: 600; color: var(--good); font-variant-numeric: tabular-nums; }
+
 @media (max-width: 620px) {
   .prompt { font-size: 1.4rem; }
   .kb-key { height: 38px; font-size: .8rem; }
