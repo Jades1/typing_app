@@ -63,9 +63,13 @@ model). Key pieces in `engine.js`:
 - **Special keys**: resolved on their `keydown` (they emit no character). `e.key`
   is exactly `Tab|Shift|Control|Alt|Meta`. Capitals/symbols need Shift on the
   opposite hand (`whichShift`).
-- **Input**: single capturing `keydown` listener in `app.js`; `preventDefault` for
-  Tab/space/handled chars, but Cmd/Ctrl combos are let through so browser shortcuts
-  (Cmd+R etc.) aren't trapped.
+- **Input**: single capturing `keydown` listener in `app.js`. While a session runs,
+  `SWALLOW_KEYS` (Tab/space/Enter/Backspace/arrows/Page/Home/End) are
+  `preventDefault`ed **up front** — before the token lookup — so they never drive
+  the browser (focus move, scroll, back-nav, button activation) even if the current
+  token isn't resolved yet. Cmd/Ctrl combos are exempted so shortcuts (Cmd+R) aren't
+  trapped. Outside a session, keys pass through normally (so Tab can still reach the
+  controls for accessibility).
 - **Curriculum & levels**: `STAGES` in `engine.js`. `settings.levelChoice` is
   `'auto' | '<stageIndex>' | 'all'`. A stage (row) is completed only when all its
   keys are individually mastered (`canAdvanceStage` = `keys.every(isMastered)`);

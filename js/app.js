@@ -50,6 +50,17 @@ let session = null;
 
 const MODIFIER_KEYS = new Set(['Shift', 'Control', 'Alt', 'Meta', 'CapsLock']);
 
+// Keys that would otherwise drive the browser/OS (Tab moves focus, space/arrows/
+// Page keys scroll, Enter activates a focused button, Backspace navigates back).
+// While a session is running these belong to the app, so we swallow them up front
+// — even if the current token is momentarily unresolved — so nothing leaks to the
+// computer. Cmd/Ctrl combos are exempted so real shortcuts (Cmd+R) still work.
+const SWALLOW_KEYS = new Set([
+  'Tab', ' ', 'Spacebar', 'Enter', 'Backspace',
+  'PageUp', 'PageDown', 'Home', 'End',
+  'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+]);
+
 function renderLine() {
   els.prompt.innerHTML = '';
   tokenEls = tokens.map((tok) => {
@@ -137,6 +148,12 @@ function judge(tok, correct, isChar) {
 
 function onKeydown(e) {
   if (!session || !session.isRunning()) return;
+
+  const shortcut = e.metaKey || e.ctrlKey;      // let real browser shortcuts through
+  // Swallow app-owned keys BEFORE any early return, so Tab et al. never reach the
+  // browser mid-session even if the current token isn't resolved yet.
+  if (!shortcut && SWALLOW_KEYS.has(e.key)) e.preventDefault();
+
   const tok = tokens[pointer];
   if (!tok) return;
 
@@ -149,8 +166,7 @@ function onKeydown(e) {
 
   // character / space token
   if (MODIFIER_KEYS.has(e.key)) return;         // wait for the actual character
-  // Let real browser shortcuts (Cmd/Ctrl combos) through instead of trapping them.
-  if (e.metaKey || e.ctrlKey) return;
+  if (shortcut) return;
 
   e.preventDefault();                            // stop space/’/etc. from scrolling
   judge(tok, e.key === tok.expected, true);
