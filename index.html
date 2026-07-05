@@ -47,13 +47,18 @@
   <main>
     <section class="stage-bar">
       <span class="stage">Stage: <strong id="stage-label">—</strong></span>
+      <label class="ctl toggle" title="Show which finger to use. Turn off once the keys are automatic.">
+        <input type="checkbox" id="fingers-toggle" checked /> Finger guide
+      </label>
       <div class="hud">
         <span class="hud-item"><label>Time</label><b id="hud-time">0:00</b></span>
         <span class="hud-item"><label>WPM</label><b id="hud-wpm">0</b></span>
         <span class="hud-item"><label>Accuracy</label><b id="hud-acc">100%</b></span>
+        <span class="hud-item"><label>Next key</label><b id="hud-next">—</b></span>
       </div>
     </section>
 
+    <div id="notice" class="notice" role="status" aria-live="polite"></div>
     <section id="prompt" class="prompt" aria-label="Text to type"></section>
     <p id="finger-hint" class="finger-hint"></p>
 

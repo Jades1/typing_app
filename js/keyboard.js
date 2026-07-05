@@ -73,6 +73,12 @@ export function render(el) {
         key.dataset.finger = finger;
       }
 
+      // Per-key mastery fill (rises from the bottom in the finger colour); updated
+      // via updateMastery() without re-rendering. Appended first so text sits above it.
+      const fill = document.createElement('span');
+      fill.className = 'kb-mastery';
+      key.appendChild(fill);
+
       if (SHIFT_LABEL[id]) {
         const sub = document.createElement('span');
         sub.className = 'kb-sub';
@@ -104,6 +110,17 @@ function cssEscape(s) {
 
 export function clearHighlight() {
   while (highlighted.length) highlighted.pop().classList.remove('kb-next', 'kb-next-shift');
+}
+
+// Paint per-key mastery (confMap: keyId -> [0,1]) as a bottom-up fill, and ring
+// the key currently being introduced. No re-render — just mutate the existing keys.
+export function updateMastery(confMap, targetKeyId) {
+  if (!container) return;
+  for (const el of container.querySelectorAll('.kb-key')) {
+    const c = confMap[el.dataset.key];
+    el.style.setProperty('--mastery', c == null ? '0' : c.toFixed(3));
+    el.classList.toggle('kb-target', targetKeyId != null && el.dataset.key === targetKeyId);
+  }
 }
 
 // Highlight the base key for `token`, plus the correct Shift if needed.

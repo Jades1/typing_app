@@ -86,6 +86,20 @@ main { max-width: 960px; margin: 0 auto; padding: 1.2rem; }
   box-shadow: 0 1px 0 var(--border);
 }
 .finger-hint { text-align: center; color: var(--accent); font-weight: 600; min-height: 1.4em; margin: .5rem 0 1rem; }
+/* Finger guidance is scaffolding — hide the text hint when toggled off; key tints stay. */
+body.no-fingers .finger-hint { visibility: hidden; }
+
+/* ---- transient notice banner ---- */
+.notice {
+  width: max-content; max-width: 100%; margin: .1rem auto .5rem; min-height: 2.1rem;
+  padding: .4rem .95rem; border-radius: 999px; text-align: center;
+  font-size: .88rem; font-weight: 600; color: var(--text);
+  background: color-mix(in srgb, var(--accent) 15%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
+  opacity: 0; transform: translateY(-4px); pointer-events: none;
+  transition: opacity .25s ease, transform .25s ease;
+}
+.notice.show { opacity: 1; transform: translateY(0); }
 
 /* ---- keyboard ---- */
 .keyboard { display: flex; flex-direction: column; gap: 6px; user-select: none; }
@@ -106,6 +120,16 @@ main { max-width: 960px; margin: 0 auto; padding: 1.2rem; }
 }
 .kb-key.kb-next-shift { outline: 3px dashed var(--accent); outline-offset: -1px; font-weight: 700; }
 .kb-key.kb-error { background: var(--error) !important; color: #fff; }
+/* Per-key mastery: a fill that rises from the bottom in the key's finger colour. */
+.kb-key .kb-mastery {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 0;
+  height: calc(var(--mastery, 0) * 100%);
+  background: var(--finger, var(--accent)); opacity: .28;
+  border-radius: 0 0 7px 7px; pointer-events: none; transition: height .4s ease;
+}
+.kb-key .kb-main, .kb-key .kb-sub { position: relative; z-index: 1; }
+/* Ring the key currently being introduced (box-shadow so it composes with kb-next's outline). */
+.kb-key.kb-target { box-shadow: inset 0 0 0 2px var(--accent), 0 1px 0 var(--border); }
 
 .legend { display: flex; flex-wrap: wrap; gap: .6rem 1rem; margin: .8rem 0 1.4rem; justify-content: center; font-size: .78rem; color: var(--muted); }
 .legend-item { display: inline-flex; align-items: center; gap: .35rem; }

@@ -5,6 +5,7 @@ import * as Stats from './stats.js';
 import * as Engine from './engine.js';
 import * as Keyboard from './keyboard.js';
 import { createSession } from './session.js';
+import { notify, initNotify } from './notify.js';
 import { FINGERS } from './fingers.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -20,6 +21,9 @@ function cacheEls() {
   els.time = $('#hud-time');
   els.wpm = $('#hud-wpm');
   els.acc = $('#hud-acc');
+  els.next = $('#hud-next');
+  els.notice = $('#notice');
+  els.fingers = $('#fingers-toggle');
   els.start = $('#start-btn');
   els.minutes = $('#minutes-select');
   els.level = $('#level-select');
@@ -68,9 +72,38 @@ function refreshCursor() {
 }
 
 function nextLine() {
+  if (session && session.isRunning()) {
+    handleProgressEvents(Engine.checkProgress());
+  }
   tokens = Engine.generateLine();
   renderLine();
+  refreshKeyboardMastery();
   Stats.save();
+}
+
+function refreshKeyboardMastery() {
+  Keyboard.updateMastery(Engine.confidenceMap(), Engine.targetKey());
+}
+
+// Turn engine progression events into on-screen notifications. A "mastered" event
+// is folded into the following "newTarget" message when they fire together.
+function handleProgressEvents(events) {
+  let mastered = null;
+  for (const ev of events) {
+    if (ev.type === 'mastered') {
+      mastered = ev.keyId;
+    } else if (ev.type === 'levelUp') {
+      els.stageLabel.textContent = Engine.stageLabel();
+      notify(`Level complete: ${ev.label}${ev.nextLabel ? ` — next up: ${ev.nextLabel}` : ''}`, { duration: 6000 });
+    } else if (ev.type === 'newTarget') {
+      const to = labelForKey(ev.keyId);
+      notify(mastered
+        ? `${labelForKey(mastered)} mastered! New key: ${to} — reach 35 WPM at 95% to unlock the next`
+        : `New key: ${to} — reach 35 WPM at 95% to unlock the next`, { duration: 4500 });
+      mastered = null;
+    }
+  }
+  if (mastered) notify(`${labelForKey(mastered)} mastered! 🎉`, { duration: 4000 });
 }
 
 function judge(tok, correct, isChar) {
@@ -127,7 +160,7 @@ function startSession() {
   const minutes = parseFloat(els.minutes.value);
   Stats.setSetting('sessionMinutes', minutes);
   lastResolveTs = 0;
-  nextLine();
+  Engine.startTracking();
   session = createSession({
     minutes,
     onTick: updateHud,
@@ -137,6 +170,7 @@ function startSession() {
   els.start.textContent = 'Stop';
   els.start.classList.add('running');
   document.body.classList.add('in-session');
+  nextLine();   // session is now running → announces the current target
 }
 
 function stopSession() {
@@ -160,6 +194,17 @@ function updateHud(live) {
   els.time.textContent = fmtTime(live.remainingMs);
   els.wpm.textContent = Math.round(live.wpm);
   els.acc.textContent = `${Math.round(live.accuracy * 100)}%`;
+  els.next.textContent = formatEta(Engine.nextKeyEta());
+}
+
+// Deliberately coarse — this is an order-of-magnitude estimate, not a countdown.
+function formatEta(eta) {
+  if (!eta || eta.keyId == null) return '—';
+  if (eta.measuring || eta.minutes == null) return '…';
+  const m = eta.minutes;
+  if (m < 0.75) return '<1 min';
+  if (m > 10) return '10+ min';
+  return `~${Math.round(m)} min`;
 }
 
 function showSummary(res) {
@@ -193,6 +238,11 @@ function escapeHtml(s) {
 function applyTheme(theme) {
   if (theme === 'auto') document.documentElement.removeAttribute('data-theme');
   else document.documentElement.setAttribute('data-theme', theme);
+}
+
+// Finger guidance is scaffolding — hide the hint text when off (key tints stay).
+function applyFingers(on) {
+  document.body.classList.toggle('no-fingers', !on);
 }
 
 function buildLegend() {
@@ -234,25 +284,30 @@ function init() {
 
   Keyboard.render(els.keyboard);
   buildLegend();
+  initNotify(els.notice);
 
   els.minutes.value = String(st.sessionMinutes);
   els.level.value = st.levelChoice;
   els.strict.checked = st.strictMode;
   els.theme.value = st.theme;
   applyTheme(st.theme);
+  els.fingers.checked = st.showFingers;
+  applyFingers(st.showFingers);
 
   // Seed a preview line so the keyboard/highlight isn't empty before starting.
   tokens = Engine.generateLine();
   renderLine();
   Keyboard.clearHighlight();
+  refreshKeyboardMastery();
   refreshStatsPanel();
 
   els.start.addEventListener('click', () => {
     if (session && session.isRunning()) stopSession(); else startSession();
   });
   els.minutes.addEventListener('change', () => Stats.setSetting('sessionMinutes', parseFloat(els.minutes.value)));
-  els.level.addEventListener('change', () => { Stats.setSetting('levelChoice', els.level.value); refreshStatsPanel(); if (!session || !session.isRunning()) { tokens = Engine.generateLine(); renderLine(); Keyboard.clearHighlight(); } });
+  els.level.addEventListener('change', () => { Stats.setSetting('levelChoice', els.level.value); refreshStatsPanel(); if (!session || !session.isRunning()) { tokens = Engine.generateLine(); renderLine(); Keyboard.clearHighlight(); refreshKeyboardMastery(); } });
   els.strict.addEventListener('change', () => Stats.setSetting('strictMode', els.strict.checked));
+  els.fingers.addEventListener('change', () => { Stats.setSetting('showFingers', els.fingers.checked); applyFingers(els.fingers.checked); });
   els.theme.addEventListener('change', () => { Stats.setSetting('theme', els.theme.value); applyTheme(els.theme.value); });
   els.reset.addEventListener('click', () => {
     if (confirm('Reset all progress and stats? This cannot be undone.')) {
@@ -260,6 +315,7 @@ function init() {
       Stats.load();
       els.level.value = 'auto'; els.strict.checked = true;
       tokens = Engine.generateLine(); renderLine(); Keyboard.clearHighlight();
+      refreshKeyboardMastery();
       refreshStatsPanel();
     }
   });

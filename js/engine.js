@@ -17,6 +17,15 @@ import * as Stats from './stats.js';
 
 const VOWELS = new Set(['a', 'e', 'i', 'o', 'u']);
 
+// --- one-key-at-a-time introduction constants --------------------------------
+// (Mastery-gate thresholds — RECENT_WINDOW, TARGET_MS, MASTERY_* — live in
+// stats.js and are read via the Stats namespace, so there's one source of truth.)
+const TARGET_PICK_P = 0.5;        // target key ≈ 1/3 of picks (w/ no-immediate-repeat)
+const MIN_DRILL = 6;              // cold-start: keep at least this many keys in rotation
+const MIN_TARGET_CAT_SLOTS = 3;   // slot floor when the target is a digit/symbol/special
+
+function clamp01(x) { return Math.max(0, Math.min(1, x)); }
+
 // Curriculum. Each stage ADDS items to the cumulative active pool. `caps` turns
 // on occasional capitalization (which trains Shift + letter).
 export const STAGES = [
@@ -72,6 +81,98 @@ export function focusSet() {
   return new Set(stageKeys(parseInt(c, 10)));
 }
 
+// --- per-key mastery ----------------------------------------------------------
+
+function isSpecialKey(keyId) {
+  return SPECIAL_KEYS.some((s) => s.id === keyId);
+}
+
+// A key is mastered when, over its recent window, it clears BOTH a speed and an
+// accuracy bar (keybr's ~35 WPM / 95%). Sticky once achieved. Speed is waived
+// for special keys, which emit no latency.
+export function isMastered(keyId) {
+  if (Stats.isMasteredFlag(keyId)) return true;
+  const r = Stats.recentStats(keyId);
+  const speedOk = isSpecialKey(keyId)
+    || (r.latSamples >= Stats.MASTERY_MIN_LAT_SAMPLES && r.avgLat <= Stats.TARGET_MS);
+  return r.attempts >= Stats.MASTERY_MIN_ATTEMPTS && r.errRate <= Stats.MASTERY_MAX_ERR && speedOk;
+}
+
+// Continuous [0,1] mastery for the keyboard fill. Equals 1 exactly when the gate
+// in isMastered() passes (all component scores clamp at 1 on their thresholds).
+export function confidence(keyId) {
+  if (Stats.isMasteredFlag(keyId)) return 1;
+  const r = Stats.recentStats(keyId);
+  const evidence = Math.min(1, r.attempts / Stats.MASTERY_MIN_ATTEMPTS);
+  const speedScore = isSpecialKey(keyId) ? 1
+    : (r.latSamples >= 3 ? clamp01((700 - r.avgLat) / (700 - Stats.TARGET_MS)) : 0);
+  const accScore = clamp01(((1 - r.errRate) - 0.80) / (0.95 - 0.80));
+  return evidence * (0.5 * speedScore + 0.5 * accScore);
+}
+
+// Confidence for every key in the eligible (unlocked) pool — for the keyboard.
+export function confidenceMap() {
+  const pool = activePool();
+  const ids = [...pool.letters, ...pool.digits, ...pool.symbols, ...pool.specials];
+  const map = {};
+  for (const id of ids) map[id] = confidence(id);
+  return map;
+}
+
+// Canonical order in which keys are introduced (STAGES order, keys as listed).
+function introductionOrder() {
+  const st = Stats.getSettings();
+  const c = st.levelChoice;
+  if (c === 'all') {
+    const order = [];
+    for (let i = 0; i < STAGES.length; i++) order.push(...stageKeys(i));
+    return order;
+  }
+  if (c === 'auto') {
+    const order = [];
+    const last = Math.min(st.stage, STAGES.length - 1);
+    for (let i = 0; i <= last; i++) order.push(...stageKeys(i));
+    return order;
+  }
+  return stageKeys(parseInt(c, 10));
+}
+
+// The single un-mastered key currently being introduced (null in 'all' mode or
+// when everything eligible is mastered).
+export function targetKey() {
+  if (Stats.getSettings().levelChoice === 'all') return null;
+  for (const k of introductionOrder()) if (!isMastered(k)) return k;
+  return null;
+}
+
+// The pool to actually generate from: mastered keys (the interleave base) plus
+// the current target, with a cold-start runway so early lines aren't too thin.
+function drillPool(target) {
+  const eligible = activePool();
+  const ids = [...eligible.letters, ...eligible.digits, ...eligible.symbols, ...eligible.specials];
+  const set = new Set();
+  for (const id of ids) if (isMastered(id)) set.add(id);
+  if (target) set.add(target);
+  for (const id of ids) {                    // runway: fill up to MIN_DRILL in order
+    if (set.size >= MIN_DRILL) break;
+    set.add(id);
+  }
+  const pool = { letters: [], digits: [], symbols: [], specials: [], caps: eligible.caps };
+  for (const id of eligible.letters) if (set.has(id)) pool.letters.push(id);
+  for (const id of eligible.digits) if (set.has(id)) pool.digits.push(id);
+  for (const id of eligible.symbols) if (set.has(id)) pool.symbols.push(id);
+  for (const id of eligible.specials) if (set.has(id)) pool.specials.push(id);
+  return pool;
+}
+
+function categoryOf(keyId, pool) {
+  if (pool.digits.includes(keyId)) return 'digits';
+  if (pool.symbols.includes(keyId)) return 'symbols';
+  if (pool.specials.includes(keyId)) return 'specials';
+  if (pool.letters.includes(keyId)) return 'letters';
+  return null;
+}
+
 // --- weakness scoring ---------------------------------------------------------
 
 // Higher = more in need of practice. A positive floor keeps mastered keys in the
@@ -106,14 +207,29 @@ export function weakest(n = 8) {
 
 // Picks keys by weakness while actively spreading coverage: a decaying "recently
 // used" penalty plus a hard no-immediate-repeat rule.
-function makeSampler(keys, focus = null) {
+function makeSampler(keys, focus = null, target = null) {
   const recent = new Map();
   let last = null;
+  const bump = (chosen) => {
+    for (const [k, v] of recent) recent.set(k, v * 0.55);
+    recent.set(chosen, (recent.get(chosen) || 0) + 1);
+    last = chosen;
+    return chosen;
+  };
   return {
     pick(prefer) {
-      let candidates = keys;
+      // Forced target: drill the key being introduced ~TARGET_PICK_P of the time,
+      // but never twice running — spaced concentration (overlearning), not massing.
+      // It bypasses the recent-penalty, which would otherwise rotate away from it.
+      if (target && keys.includes(target) && last !== target && pseudoRandom() < TARGET_PICK_P) {
+        return bump(target);
+      }
+      // Weighted pick over everything except the target (it has its own path).
+      let candidates = target ? keys.filter((k) => k !== target) : keys.slice();
+      if (!candidates.length) candidates = keys.slice();
       if (candidates.length > 1 && last !== null) {
-        candidates = candidates.filter((k) => k !== last);
+        const noLast = candidates.filter((k) => k !== last);
+        if (noLast.length) candidates = noLast;
       }
       const weights = candidates.map((k) => {
         let w = weakness(k, focus);
@@ -121,12 +237,7 @@ function makeSampler(keys, focus = null) {
         const r = recent.get(k) || 0;
         return w / (1 + 1.8 * r);                    // breadth: suppress just-used keys
       });
-      const chosen = weightedIndex(candidates, weights);
-      // decay everyone, bump the chosen — spreads subsequent picks around
-      for (const [k, v] of recent) recent.set(k, v * 0.55);
-      recent.set(chosen, (recent.get(chosen) || 0) + 1);
-      last = chosen;
-      return chosen;
+      return bump(weightedIndex(candidates, weights));
     },
   };
 }
@@ -211,13 +322,15 @@ function interleaveSlots(counts) {
 
 // Build one practice line (~12 slots) from the active pool.
 export function generateLine() {
-  const pool = activePool();
+  const target = targetKey();
+  const pool = (Stats.getSettings().levelChoice !== 'all' && target !== null)
+    ? drillPool(target) : activePool();
   const focus = focusSet();
-  const letterSampler = pool.letters.length ? makeSampler(pool.letters, focus) : null;
-  const digitSampler = pool.digits.length ? makeSampler(pool.digits, focus) : null;
-  const symbolSampler = pool.symbols.length ? makeSampler(pool.symbols, focus) : null;
+  const letterSampler = pool.letters.length ? makeSampler(pool.letters, focus, target) : null;
+  const digitSampler = pool.digits.length ? makeSampler(pool.digits, focus, target) : null;
+  const symbolSampler = pool.symbols.length ? makeSampler(pool.symbols, focus, target) : null;
   const specialSampler = pool.specials.filter((s) => s !== 'Shift');
-  const specialRot = specialSampler.length ? makeSampler(specialSampler, focus) : null;
+  const specialRot = specialSampler.length ? makeSampler(specialSampler, focus, target) : null;
 
   // Slot allocation. Letters are the backbone; other categories get slots in
   // proportion to how much practice they need (their summed weakness), capped so
@@ -249,6 +362,19 @@ export function generateLine() {
     }
   }
 
+  // Guarantee the key being introduced gets enough reps per line even when its
+  // category (a lone new digit/symbol/special) would otherwise get ~1 slot.
+  if (target) {
+    const cat = categoryOf(target, pool);
+    if (cat && cat !== 'letters' && counts[cat] !== undefined) {
+      counts[cat] = Math.max(counts[cat], MIN_TARGET_CAT_SLOTS);
+      const total = Object.values(counts).reduce((a, b) => a + b, 0);
+      if (total > SLOTS && counts.letters) {   // borrow from the letter backbone
+        counts.letters = Math.max(1, counts.letters - (total - SLOTS));
+      }
+    }
+  }
+
   const order = interleaveSlots(counts);
   const tokens = [];
   for (const cat of order) {
@@ -269,17 +395,14 @@ function spaceToken() {
 
 // --- stage progression --------------------------------------------------------
 
-// Ready to advance when the current stage's own keys are each practiced enough
-// and accurate enough. Returns true/false.
+// Ready to advance when every key the current stage introduced is individually
+// MASTERED (speed + accuracy over its recent window), not merely accurate.
 export function canAdvanceStage() {
   const st = Stats.getSettings();
   if (st.stage >= STAGES.length - 1) return false;
   const keys = stageKeys(st.stage);
   if (!keys.length) return true; // e.g. a caps-only stage
-  return keys.every((k) => {
-    const s = Stats.keyStat(k);
-    return s.attempts >= 12 && Stats.errorRate(k) <= 0.08;
-  });
+  return keys.every((k) => isMastered(k));
 }
 
 // Advance if ready — only in auto mode. Returns the new stage label, or null.
@@ -291,6 +414,98 @@ export function maybeAdvanceStage() {
     return STAGES[st.stage].label;
   }
   return null;
+}
+
+// --- progression events + ETA (called once per line from app.js) --------------
+
+let lastAnnouncedTarget = null;
+let paceSnapshots = [];   // { t, a } wall-time + target attempts; in-memory only
+let etaSmoothed = null;
+
+// Reset per-target tracking at session start (and whenever the target changes).
+export function startTracking() {
+  lastAnnouncedTarget = null;
+  paceSnapshots = [];
+  etaSmoothed = null;
+}
+
+function resetPace() {
+  paceSnapshots = [];
+  etaSmoothed = null;
+}
+
+// Detect graduations / level-ups / new targets since the last call. Returns an
+// event list the UI turns into notifications: {type:'mastered'|'levelUp'|'newTarget', ...}.
+export function checkProgress() {
+  const events = [];
+  const st = Stats.getSettings();
+  if (st.levelChoice === 'all') return events;
+  // Any key whose gate now passes but isn't yet flagged has just graduated.
+  for (const k of introductionOrder()) {
+    if (!Stats.isMasteredFlag(k) && isMastered(k)) {
+      Stats.markMastered(k);
+      events.push({ type: 'mastered', keyId: k });
+    }
+  }
+  if (st.levelChoice === 'auto') {
+    const label = maybeAdvanceStage();
+    if (label) events.push({ type: 'levelUp', label, nextLabel: STAGES[Stats.getSettings().stage]?.label });
+  }
+  const target = targetKey();
+  if (target && target !== lastAnnouncedTarget) {
+    events.push({ type: 'newTarget', keyId: target });
+    lastAnnouncedTarget = target;
+    resetPace();
+  }
+  return events;
+}
+
+// Rough "time until the next key unlocks" from remaining reps ÷ measured pace.
+// Deliberately coarse (learning curves aren't linear) — the UI quantizes it.
+export function nextKeyEta() {
+  const st = Stats.getSettings();
+  const target = targetKey();
+  if (!target || st.levelChoice === 'all') return { minutes: null, keyId: null, measuring: false };
+  const r = Stats.recentStats(target);
+  const special = isSpecialKey(target);
+
+  const repsEvidence = Math.max(0, Stats.MASTERY_MIN_ATTEMPTS - r.attempts);
+  let repsSpeed = 0;
+  if (!special) {
+    if (r.avgLat > Stats.TARGET_MS) {
+      const last10 = r.lats.slice(-10);
+      const l10 = last10.length ? last10.reduce((a, b) => a + b, 0) / last10.length : r.avgLat;
+      // reps of fresh keystrokes (at recent pace l10) to pull the window avg under target
+      repsSpeed = l10 < r.avgLat
+        ? Math.ceil(Stats.RECENT_WINDOW * (r.avgLat - Stats.TARGET_MS) / (r.avgLat - l10))
+        : 60; // not improving — pessimistic placeholder
+      repsSpeed = Math.max(0, Math.min(120, repsSpeed));
+    }
+    if (r.latSamples < Stats.MASTERY_MIN_LAT_SAMPLES) {
+      repsSpeed = Math.max(repsSpeed, Stats.MASTERY_MIN_LAT_SAMPLES - r.latSamples);
+    }
+  }
+  let repsAcc = 0;
+  if (r.errRate > Stats.MASTERY_MAX_ERR) {
+    const allowed = Math.floor(Stats.RECENT_WINDOW * Stats.MASTERY_MAX_ERR); // ~1 error tolerated
+    repsAcc = Math.max(0, (r.errors - allowed) * 5);                   // each surplus error ≈ 5 clean reps to age out
+  }
+  const repsNeeded = Math.max(repsEvidence, repsSpeed, repsAcc);
+  if (repsNeeded <= 0) return { minutes: 0, keyId: target, measuring: false };
+
+  const now = Date.now();
+  const attemptsNow = Stats.keyStat(target).attempts;
+  const lastSnap = paceSnapshots[paceSnapshots.length - 1];
+  if (!lastSnap || now - lastSnap.t >= 1000) paceSnapshots.push({ t: now, a: attemptsNow });
+  paceSnapshots = paceSnapshots.filter((s) => now - s.t <= 90000);
+  const oldest = paceSnapshots[0];
+  if (!oldest || now - oldest.t < 15000 || attemptsNow - oldest.a <= 0) {
+    return { minutes: null, keyId: target, measuring: true };
+  }
+  const pace = (attemptsNow - oldest.a) / ((now - oldest.t) / 60000);  // target reps/min
+  const etaRaw = repsNeeded / Math.max(pace, 1);
+  etaSmoothed = etaSmoothed == null ? etaRaw : 0.6 * etaSmoothed + 0.4 * etaRaw;
+  return { minutes: etaSmoothed, keyId: target, measuring: false };
 }
 
 export function stageLabel() {
