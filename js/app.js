@@ -108,6 +108,11 @@ function handleProgressEvents(events) {
     } else if (ev.type === 'levelUp') {
       els.stageLabel.textContent = Engine.stageLabel();
       notify(`Level complete: ${ev.label}${ev.nextLabel ? ` — next up: ${ev.nextLabel}` : ''}`, { duration: 6000 });
+    } else if (ev.type === 'material') {
+      els.stageLabel.textContent = Engine.stageLabel();
+      notify(ev.level === 'sentences'
+        ? 'Sentences unlocked — full fluency mode. 📝'
+        : 'All letters mastered — real words unlocked! 📖', { duration: 6000 });
     } else if (ev.type === 'newTarget') {
       const to = labelForKey(ev.keyId);
       notify(mastered

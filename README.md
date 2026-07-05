@@ -17,8 +17,16 @@ No build step, no dependencies. Open `index.html` in a browser and start typing.
   the next key is introduced. Interleaving is the *reward* for mastery, not the way
   keys are first learned.
 - **Speed-gated progression** — a level (a whole keyboard row) is completed only
-  when every key it introduced is individually mastered on both speed and accuracy
-  — not merely typed accurately once or twice.
+  when every key it introduced is individually mastered. **Letters** need fluency
+  (≈35 WPM at ≥95%); **numbers and symbols** use a faster, accuracy-focused gate
+  (lenient speed, fewer reps) — because for low-frequency keys the goal is reliable
+  *location + finger recall*, not letter-level speed (research-backed).
+- **Real words → sentences fluency phase** — once you've mastered the letters, the
+  practice material graduates from pronounceable clusters to **real words** (drawn
+  from a common-word list, still weighted toward your weak keys), and then to
+  **real sentences** (with capitalization and punctuation) once caps and `.`/`,`
+  are mastered. This builds the word/bigram "chunking" that produces real-world
+  typing speed — the transfer that random clusters alone don't train.
 - **"Next key" time estimate** — a live HUD readout estimates, at your current
   pace, roughly how long until the current key is mastered and the next unlocks
   (a coarse `<1 / ~N / 10+ min` guide, not a precise countdown).
@@ -52,8 +60,9 @@ No build step, no dependencies. Open `index.html` in a browser and start typing.
   want to drill: *Adaptive (auto-level)* introduces keys one at a time through a
   curriculum (home → top → bottom → capitals → numbers → symbols → special keys);
   pick a specific level (e.g. **Numbers**) to master that group's keys one at a
-  time on top of earlier ones; or **All keys** for a full weakness-weighted mix
-  (no single target — the classic mixed-review mode).
+  time on top of earlier ones; **Words** or **Sentences** to jump to the fluency
+  phase; or **All keys** for a full weakness-weighted mix (no single target — the
+  classic mixed-review mode).
 - **Streaks & stats** — daily practice streak, minutes-today vs. goal, a live
   "keys to focus on" list, and a recent-WPM bar chart.
 - **Strict vs. forgiving mode** — require correcting each error before advancing,

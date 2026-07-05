@@ -11,6 +11,7 @@ index.html      page structure (topbar, prompt, keyboard, panel, summary modal)
 styles.css      theme-aware styling (light/dark/auto), keyboard + finger colours
 js/
   fingers.js    key -> finger map (Mac QWERTY), finger metadata/colours, shift helpers
+  words.js      bundled word/sentence corpus + letter-bitmask filtering (leaf module)
   stats.js      per-key stats (incl. recent-window buffer + mastery flags), gate
                 constants, WPM/accuracy, session history, streaks, localStorage + migration
   engine.js     mastery gate, one-at-a-time target, drill pool, forced-target sampler,
@@ -23,6 +24,13 @@ js/
 
 ## Learning doctrine (the core mechanic — read this first)
 
+**Evidence base:** the research behind every learning-design choice lives in
+`research/` (indexed by `research/README.md`, which also holds the decisions ←
+evidence table). **Consult it before changing the curriculum, mastery gate, or
+practice material**, and log new findings there with a source + quality tag
+(`PEER-REVIEWED`/`COMMERCIAL`/`ANECDOTAL`) + confidence. Known open item: real
+words/sentences practice is *proposed but not built* (research/05).
+
 **Interleave mastered keys, not un-mastered ones.** Keys are introduced ONE AT A
 TIME. The single un-mastered "target" key (`targetKey()`, first un-mastered key in
 canonical `STAGES` order) is drilled — interleaved only with keys already mastered
@@ -31,11 +39,13 @@ key is introduced. Interleaving is the *reward* for mastery, not the method of
 acquiring it. Backed by contextual-interference + overlearning research (keybr's
 model). Key pieces in `engine.js`:
 
-- **Mastery gate** (`isMastered`): over a **recent window** (last `RECENT_WINDOW`
-  attempts, not lifetime) a key needs `≥MASTERY_MIN_ATTEMPTS`, recent `errRate
-  ≤MASTERY_MAX_ERR`, and recent `avgLat ≤TARGET_MS` (≈343 ms = 35 WPM). **Speed is
-  waived for special keys** (they emit no latency). Constants live in `stats.js`
-  (single source; engine reads them via `Stats.*`).
+- **Mastery gate** (`isMastered` via `gateFor(keyId)` — **category-aware**): over a
+  **recent window** (last `RECENT_WINDOW` attempts, not lifetime). **Letters:**
+  `≥MASTERY_MIN_ATTEMPTS`, `errRate ≤MASTERY_MAX_ERR`, `avgLat ≤TARGET_MS` (≈343 ms
+  = 35 WPM). **Numbers/symbols:** lenient — 12 attempts, ≤600 ms (research/06: the
+  goal is location + finger recall, not fluency). **Specials:** speed waived (no
+  latency). Base constants live in `stats.js`; the per-category thresholds live in
+  `gateFor` in `engine.js`.
 - **Sticky mastery**: once graduated a key stays graduated (`markMastered`, a
   persisted flag). A later slip is handled by ordinary weakness re-emphasis in the
   rotation — it does **not** re-become the target, so the curriculum never stalls.
@@ -71,11 +81,21 @@ model). Key pieces in `engine.js`:
   trapped. Outside a session, keys pass through normally (so Tab can still reach the
   controls for accessibility).
 - **Curriculum & levels**: `STAGES` in `engine.js`. `settings.levelChoice` is
-  `'auto' | '<stageIndex>' | 'all'`. A stage (row) is completed only when all its
-  keys are individually mastered (`canAdvanceStage` = `keys.every(isMastered)`);
-  `maybeAdvanceStage()` advances in `'auto'` and now fires mid-session via
-  `checkProgress()`. A specific level masters that stage's keys one at a time on
-  top of earlier stages. `'all'` = full pool, no target.
+  `'auto' | '<stageIndex>' | 'all' | 'words' | 'sentences'`. A stage (row) is
+  completed only when all its keys are individually mastered (`canAdvanceStage` =
+  `keys.every(isMastered)`); `maybeAdvanceStage()` advances in `'auto'` and fires
+  mid-session via `checkProgress()`. A specific level masters that stage's keys one
+  at a time on top of earlier stages. `'all'`/`'words'`/`'sentences'` are **fluency
+  modes** (`FLUENCY_MODES`): null target, full pool.
+- **Material level** (`materialLevel()` → `clusters | words | sentences`, research/05):
+  a *derived* function of mastery state, **nothing new persisted**. Once all pool
+  letters are mastered, the letters backbone of a line renders **real words** (from
+  the `js/words.js` corpus, filtered to mastered letters via letter bitmask, then
+  weakness-weighted) instead of pseudoword clusters; once `pool.caps` **and** `.`/`,`
+  are mastered, `'sentences'` mode serves verbatim corpus sentences. Digit/symbol
+  acquisition (targets, slot floors) continues around the word material.
+  `checkProgress()` emits `{type:'material'}` on promotion → app.js notifies.
+  **Trap:** test `pool.caps`, never `isMastered('Shift')` (Shift is never gated).
 - **Finger toggle**: `settings.showFingers` (home-screen checkbox) toggles
   `body.no-fingers`, which hides `#finger-hint`. Key colour tints stay on.
 - **Session feedback**: `showSummary()` (`app.js`) surfaces progress from data

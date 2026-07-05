@@ -14,6 +14,7 @@ import {
   KEY_FINGER, SYMBOLS, SPECIAL_KEYS, needsShift, whichShift,
 } from './fingers.js';
 import * as Stats from './stats.js';
+import * as Words from './words.js';
 
 const VOWELS = new Set(['a', 'e', 'i', 'o', 'u']);
 
@@ -23,6 +24,40 @@ const VOWELS = new Set(['a', 'e', 'i', 'o', 'u']);
 const TARGET_PICK_P = 0.5;        // target key ≈ 1/3 of picks (w/ no-immediate-repeat)
 const MIN_DRILL = 6;              // cold-start: keep at least this many keys in rotation
 const MIN_TARGET_CAT_SLOTS = 3;   // slot floor when the target is a digit/symbol/special
+
+// --- words → sentences fluency phase constants -------------------------------
+const MIN_ELIGIBLE_WORDS = 12;      // fewer eligible words → fall back to clusters
+const MIN_ELIGIBLE_SENTENCES = 8;   // fewer eligible sentences → word lines instead
+const WORD_LINE_TARGET_CHARS = 32;  // ≈ current line length
+const WORD_LINE_MAX_WORDS = 8;
+const MAX_WORD_LEN_MIXED = 7;       // word-length cap when a word fills a mixed line's letters slot
+const CAPS_WORD_P = 0.2;            // capitalize a word's first letter (when caps unlocked)
+const SENTENCE_LINE_P = 0.6;        // terminal fluency: sentence vs word line
+const MIXED_LINE_P = 0.3;           // terminal fluency: classic mixed line (keeps digits/symbols in rotation)
+const FREQ_WEIGHT = 0.6;            // frequency-rank boost in word scoring
+const WEAK_WORD_BOOST = 1.5;        // words containing the weakest mastered letter
+const RECENT_WORD_DECAY = 0.55;
+const RECENT_WORD_PENALTY = 1.8;
+const SENTENCE_NO_REPEAT = 5;
+
+// Numbers/symbols use a faster, accuracy-focused gate than letters — research says
+// the competency for low-frequency keys is location + finger recall, not fluency
+// (see research/06). Specials keep speed waived. Values in ms / counts.
+function gateFor(keyId) {
+  if (isSpecialKey(keyId)) {
+    return { minAttempts: Stats.MASTERY_MIN_ATTEMPTS, maxErr: Stats.MASTERY_MAX_ERR, speedMs: null, minLatSamples: 0 };
+  }
+  if (/^[0-9]$/.test(keyId) || isSymbolKey(keyId)) {
+    return { minAttempts: 12, maxErr: Stats.MASTERY_MAX_ERR, speedMs: 600, minLatSamples: 4 };
+  }
+  return { minAttempts: Stats.MASTERY_MIN_ATTEMPTS, maxErr: Stats.MASTERY_MAX_ERR, speedMs: Stats.TARGET_MS, minLatSamples: Stats.MASTERY_MIN_LAT_SAMPLES };
+}
+
+// A symbol = a gate-able key that isn't a letter, digit, or special (e.g. ; , . / ! @).
+function isSymbolKey(keyId) {
+  return typeof keyId === 'string' && keyId.length === 1
+    && !/^[a-zA-Z0-9]$/.test(keyId) && keyId !== ' ' && !isSpecialKey(keyId);
+}
 
 function clamp01(x) { return Math.max(0, Math.min(1, x)); }
 
@@ -53,10 +88,12 @@ export function poolFor(stageIndex, all = false) {
   return pool;
 }
 
+const FLUENCY_MODES = new Set(['all', 'words', 'sentences']);
+
 export function activePool() {
   const st = Stats.getSettings();
   const c = st.levelChoice;
-  if (c === 'all') return poolFor(0, true);
+  if (FLUENCY_MODES.has(c)) return poolFor(0, true);   // full pool
   if (c === 'auto') return poolFor(st.stage);
   return poolFor(parseInt(c, 10));          // a specific level index (cumulative)
 }
@@ -77,7 +114,7 @@ export function stageKeys(index) {
 // with easier keys from earlier levels. Returns a Set or null.
 export function focusSet() {
   const c = Stats.getSettings().levelChoice;
-  if (c === 'auto' || c === 'all') return null;
+  if (c === 'auto' || FLUENCY_MODES.has(c)) return null;
   return new Set(stageKeys(parseInt(c, 10)));
 }
 
@@ -87,25 +124,30 @@ function isSpecialKey(keyId) {
   return SPECIAL_KEYS.some((s) => s.id === keyId);
 }
 
-// A key is mastered when, over its recent window, it clears BOTH a speed and an
-// accuracy bar (keybr's ~35 WPM / 95%). Sticky once achieved. Speed is waived
-// for special keys, which emit no latency.
+// A key is mastered when, over its recent window, it clears its category's gate
+// (letters: ~35 WPM/95%; numbers/symbols: accuracy-focused, lenient speed; specials:
+// accuracy only). Sticky once achieved. See gateFor().
 export function isMastered(keyId) {
   if (Stats.isMasteredFlag(keyId)) return true;
   const r = Stats.recentStats(keyId);
-  const speedOk = isSpecialKey(keyId)
-    || (r.latSamples >= Stats.MASTERY_MIN_LAT_SAMPLES && r.avgLat <= Stats.TARGET_MS);
-  return r.attempts >= Stats.MASTERY_MIN_ATTEMPTS && r.errRate <= Stats.MASTERY_MAX_ERR && speedOk;
+  const g = gateFor(keyId);
+  const speedOk = g.speedMs == null || (r.latSamples >= g.minLatSamples && r.avgLat <= g.speedMs);
+  return r.attempts >= g.minAttempts && r.errRate <= g.maxErr && speedOk;
 }
 
-// Continuous [0,1] mastery for the keyboard fill. Equals 1 exactly when the gate
-// in isMastered() passes (all component scores clamp at 1 on their thresholds).
+// Continuous [0,1] mastery for the keyboard fill. Equals 1 exactly when this key's
+// gate in isMastered() passes (each component clamps at 1 on its threshold).
 export function confidence(keyId) {
   if (Stats.isMasteredFlag(keyId)) return 1;
   const r = Stats.recentStats(keyId);
-  const evidence = Math.min(1, r.attempts / Stats.MASTERY_MIN_ATTEMPTS);
-  const speedScore = isSpecialKey(keyId) ? 1
-    : (r.latSamples >= 3 ? clamp01((700 - r.avgLat) / (700 - Stats.TARGET_MS)) : 0);
+  const g = gateFor(keyId);
+  const evidence = Math.min(1, r.attempts / g.minAttempts);
+  let speedScore;
+  if (g.speedMs == null) speedScore = 1;
+  else {
+    const zero = g.speedMs + 357;   // latency at which speed score hits 0 (letters: 700)
+    speedScore = r.latSamples >= 3 ? clamp01((zero - r.avgLat) / (zero - g.speedMs)) : 0;
+  }
   const accScore = clamp01(((1 - r.errRate) - 0.80) / (0.95 - 0.80));
   return evidence * (0.5 * speedScore + 0.5 * accScore);
 }
@@ -123,7 +165,7 @@ export function confidenceMap() {
 function introductionOrder() {
   const st = Stats.getSettings();
   const c = st.levelChoice;
-  if (c === 'all') {
+  if (FLUENCY_MODES.has(c)) {
     const order = [];
     for (let i = 0; i < STAGES.length; i++) order.push(...stageKeys(i));
     return order;
@@ -140,7 +182,7 @@ function introductionOrder() {
 // The single un-mastered key currently being introduced (null in 'all' mode or
 // when everything eligible is mastered).
 export function targetKey() {
-  if (Stats.getSettings().levelChoice === 'all') return null;
+  if (FLUENCY_MODES.has(Stats.getSettings().levelChoice)) return null;
   for (const k of introductionOrder()) if (!isMastered(k)) return k;
   return null;
 }
@@ -320,10 +362,163 @@ function interleaveSlots(counts) {
   return order;
 }
 
+// --- words → sentences fluency phase ------------------------------------------
+// The letters *material* graduates from pseudoword clusters (acquisition) to real
+// words then sentences (transfer/chunking) as mastery accrues — see research/05.
+
+let recentWords = new Map();     // word -> decaying use count (breadth across the list)
+let lastWord = null;
+let recentSentences = [];        // no-repeat window
+let lastMaterial = null;         // for the {type:'material'} notification
+
+function masteredLetterSet() {
+  return new Set(activePool().letters.filter((l) => isMastered(l)));
+}
+
+function allPoolLettersMastered() {
+  const pool = activePool();
+  return pool.letters.length > 0 && pool.letters.every((l) => isMastered(l));
+}
+
+function sentencesReady() {
+  const pool = activePool();
+  // NB: test pool.caps, NOT isMastered('Shift') — Shift is never gated.
+  return allPoolLettersMastered() && pool.caps && isMastered('.') && isMastered(',');
+}
+
+// 'clusters' (acquisition) | 'words' | 'sentences' — a pure function of mastery state.
+export function materialLevel() {
+  if (!allPoolLettersMastered()) return 'clusters';
+  if (Words.eligibleWords(masteredLetterSet()).length < MIN_ELIGIBLE_WORDS) return 'clusters';
+  if (sentencesReady() && eligibleSentences().length >= MIN_ELIGIBLE_SENTENCES) return 'sentences';
+  return 'words';
+}
+
+function weakestMasteredLetter() {
+  let best = null; let bestW = -Infinity;
+  for (const l of masteredLetterSet()) {
+    const w = weakness(l);
+    if (w > bestW) { bestW = w; best = l; }
+  }
+  return best;
+}
+
+function scoreWord(word, rank, nWords, weakestLetter) {
+  const uniq = [...new Set(word)];
+  let w = uniq.reduce((a, ch) => a + weakness(ch), 0) / uniq.length;   // mean letter weakness
+  w *= 1 + FREQ_WEIGHT * (1 - rank / nWords);                          // favor common words
+  if (weakestLetter && word.includes(weakestLetter)) w *= WEAK_WORD_BOOST;
+  const r = recentWords.get(word) || 0;
+  return w / (1 + RECENT_WORD_PENALTY * r);                            // breadth
+}
+
+function pickWord(eligible) {
+  let candidates = eligible;
+  if (eligible.length > 1 && lastWord) {
+    const noLast = eligible.filter((w) => w !== lastWord);
+    if (noLast.length) candidates = noLast;
+  }
+  const weakest = weakestMasteredLetter();
+  const rankOf = new Map(eligible.map((w, i) => [w, i]));   // freq rank = position
+  const weights = candidates.map((w) => scoreWord(w, rankOf.get(w), eligible.length, weakest));
+  const chosen = weightedIndex(candidates, weights);
+  for (const [k, v] of recentWords) recentWords.set(k, v * RECENT_WORD_DECAY);
+  recentWords.set(chosen, (recentWords.get(chosen) || 0) + 1);
+  lastWord = chosen;
+  return chosen;
+}
+
+function wordTokens(word, allowCaps) {
+  const chars = (allowCaps && pseudoRandom() < CAPS_WORD_P)
+    ? [word[0].toUpperCase(), ...word.slice(1)] : [...word];
+  return chars.map(charToken);
+}
+
+function wordLine() {
+  const eligible = Words.eligibleWords(masteredLetterSet());
+  const caps = activePool().caps;
+  const tokens = [];
+  let chars = 0; let n = 0;
+  while (chars < WORD_LINE_TARGET_CHARS && n < WORD_LINE_MAX_WORDS) {
+    const w = pickWord(eligible);
+    tokens.push(...wordTokens(w, caps), spaceToken());
+    chars += w.length + 1; n += 1;
+  }
+  while (tokens.length && tokens[tokens.length - 1].type === 'space') tokens.pop();
+  return tokens;
+}
+
+// --- sentences (drawn verbatim from the bundled corpus, filtered to typeable keys) ---
+
+function charTypeable(ch, pool) {
+  if (ch === ' ') return true;
+  if (/[a-z]/.test(ch)) return pool.letters.includes(ch) && isMastered(ch);
+  if (/[A-Z]/.test(ch)) return pool.caps && isMastered(ch.toLowerCase());  // NOT isMastered('Shift')
+  if (/[0-9]/.test(ch)) return pool.digits.includes(ch) && isMastered(ch);
+  return pool.symbols.includes(ch) && isMastered(ch);   // '.', ',', '!', '?', "'" etc. are per-char keyIds
+}
+
+function sentenceEligible(s, pool) { return [...s].every((ch) => charTypeable(ch, pool)); }
+
+function eligibleSentences() {
+  const pool = activePool();
+  return Words.SENTENCES.filter((s) => sentenceEligible(s, pool));
+}
+
+function sentenceTokens(s) {
+  return [...s].map((ch) => (ch === ' ' ? spaceToken() : charToken(ch)));
+}
+
+function uniqueBaseChars(s) {
+  const set = new Set();
+  for (const ch of s) {
+    if (ch === ' ') continue;
+    set.add(/[A-Z]/.test(ch) ? ch.toLowerCase() : ch);
+  }
+  return [...set];
+}
+
+function sentenceLine() {
+  const pool = activePool();
+  let candidates = Words.SENTENCES.filter((s) => sentenceEligible(s, pool) && !recentSentences.includes(s));
+  if (!candidates.length) candidates = eligibleSentences();
+  const weights = candidates.map((s) => {
+    const chars = uniqueBaseChars(s);
+    return chars.length ? chars.reduce((a, ch) => a + weakness(ch), 0) / chars.length : 0.01;
+  });
+  const s = weightedIndex(candidates, weights);
+  recentSentences.push(s);
+  if (recentSentences.length > SENTENCE_NO_REPEAT) recentSentences.shift();
+  return sentenceTokens(s);
+}
+
 // Build one practice line (~12 slots) from the active pool.
 export function generateLine() {
+  const lc = Stats.getSettings().levelChoice;
+
+  // Explicit fluency modes (manual level select).
+  if (lc === 'sentences' && sentencesReady() && eligibleSentences().length >= MIN_ELIGIBLE_SENTENCES) {
+    return sentenceLine();
+  }
+  if ((lc === 'words' || lc === 'sentences')
+      && Words.eligibleWords(masteredLetterSet()).length >= MIN_ELIGIBLE_WORDS) {
+    return wordLine();
+  }
+
   const target = targetKey();
-  const pool = (Stats.getSettings().levelChoice !== 'all' && target !== null)
+
+  // Terminal fluency in auto / '<n>' / 'all': no target left and words available →
+  // mix sentence / word / occasional classic mixed lines (keeps digits/symbols alive).
+  if (target === null && lc !== 'words' && lc !== 'sentences' && materialLevel() !== 'clusters') {
+    const mat = materialLevel();
+    if (pseudoRandom() >= MIXED_LINE_P) {
+      if (mat === 'sentences' && pseudoRandom() < SENTENCE_LINE_P) return sentenceLine();
+      return wordLine();
+    }
+    // else fall through to a classic mixed line (with a words backbone, below)
+  }
+
+  const pool = (!FLUENCY_MODES.has(lc) && target !== null)
     ? drillPool(target) : activePool();
   const focus = focusSet();
   const letterSampler = pool.letters.length ? makeSampler(pool.letters, focus, target) : null;
@@ -375,10 +570,23 @@ export function generateLine() {
     }
   }
 
+  // Past the clusters phase, the letters backbone of a mixed line renders as real
+  // (length-capped) words instead of pseudoword clusters — words are the transfer
+  // material while digits/symbols/specials acquisition continues around them.
+  const useWords = materialLevel() !== 'clusters';
+  const shortWords = useWords
+    ? Words.eligibleWords(masteredLetterSet()).filter((w) => w.length <= MAX_WORD_LEN_MIXED)
+    : null;
+  const wordsForLetters = useWords && shortWords.length >= MIN_ELIGIBLE_WORDS;
+
   const order = interleaveSlots(counts);
   const tokens = [];
   for (const cat of order) {
-    if (cat === 'letters') tokens.push(...letterCluster(letterSampler, pool.letters, pool.caps));
+    if (cat === 'letters') {
+      tokens.push(...(wordsForLetters
+        ? wordTokens(pickWord(shortWords), pool.caps)
+        : letterCluster(letterSampler, pool.letters, pool.caps)));
+    }
     else if (cat === 'digits') tokens.push(charToken(digitSampler.pick(null)));
     else if (cat === 'symbols') tokens.push(charToken(symbolSampler.pick(null)));
     else if (cat === 'specials') tokens.push(specialToken(specialRot.pick(null)));
@@ -429,6 +637,10 @@ export function startTracking() {
   paceSnapshots = [];
   etaSmoothed = null;
   trackingStartCounter = Stats.seenCounter();
+  lastMaterial = materialLevel();   // seed so no spurious 'material' notice at session start
+  recentWords = new Map();
+  lastWord = null;
+  recentSentences = [];
 }
 
 function resetPace() {
@@ -441,23 +653,34 @@ function resetPace() {
 export function checkProgress() {
   const events = [];
   const st = Stats.getSettings();
-  if (st.levelChoice === 'all') return events;
-  // Any key whose gate now passes but isn't yet flagged has just graduated.
-  for (const k of introductionOrder()) {
-    if (!Stats.isMasteredFlag(k) && isMastered(k)) {
-      Stats.markMastered(k);
-      events.push({ type: 'mastered', keyId: k });
+  const fluency = FLUENCY_MODES.has(st.levelChoice);
+
+  if (!fluency) {
+    // Any key whose gate now passes but isn't yet flagged has just graduated.
+    for (const k of introductionOrder()) {
+      if (!Stats.isMasteredFlag(k) && isMastered(k)) {
+        Stats.markMastered(k);
+        events.push({ type: 'mastered', keyId: k });
+      }
+    }
+    if (st.levelChoice === 'auto') {
+      const label = maybeAdvanceStage();
+      if (label) events.push({ type: 'levelUp', label, nextLabel: STAGES[Stats.getSettings().stage]?.label });
+    }
+    const target = targetKey();
+    if (target && target !== lastAnnouncedTarget) {
+      events.push({ type: 'newTarget', keyId: target });
+      lastAnnouncedTarget = target;
+      resetPace();
     }
   }
-  if (st.levelChoice === 'auto') {
-    const label = maybeAdvanceStage();
-    if (label) events.push({ type: 'levelUp', label, nextLabel: STAGES[Stats.getSettings().stage]?.label });
-  }
-  const target = targetKey();
-  if (target && target !== lastAnnouncedTarget) {
-    events.push({ type: 'newTarget', keyId: target });
-    lastAnnouncedTarget = target;
-    resetPace();
+
+  // Material-level promotion (any mode): clusters → words → sentences.
+  const mat = materialLevel();
+  if (mat !== lastMaterial) {
+    const rank = { clusters: 0, words: 1, sentences: 2 };
+    if (lastMaterial !== null && rank[mat] > rank[lastMaterial]) events.push({ type: 'material', level: mat });
+    lastMaterial = mat;
   }
   return events;
 }
@@ -536,7 +759,12 @@ export function masteryProgress() {
 
 export function stageLabel() {
   const c = Stats.getSettings().levelChoice;
+  if (c === 'words') return 'Words (fluency)';
+  if (c === 'sentences') return 'Sentences (fluency)';
   if (c === 'all') return 'All keys';
-  if (c === 'auto') return `${STAGES[Stats.getSettings().stage]?.label ?? 'Practice'} (auto)`;
+  if (c === 'auto') {
+    if (targetKey() === null && materialLevel() !== 'clusters') return `Fluency — ${materialLevel()} (auto)`;
+    return `${STAGES[Stats.getSettings().stage]?.label ?? 'Practice'} (auto)`;
+  }
   return STAGES[parseInt(c, 10)]?.label ?? 'Practice';
 }
