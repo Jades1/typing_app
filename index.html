@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Adaptive Typing Trainer</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1>⌨️ Adaptive Typing Trainer</h1>
+    <div class="controls">
+      <label class="ctl">Session
+        <select id="minutes-select">
+          <option value="1">1 min</option>
+          <option value="3">3 min</option>
+          <option value="5">5 min</option>
+          <option value="10">10 min</option>
+          <option value="15">15 min</option>
+        </select>
+      </label>
+      <label class="ctl">Level
+        <select id="level-select">
+          <option value="auto">Adaptive (auto-level)</option>
+          <option value="0">1 · Home row</option>
+          <option value="1">2 · Top row</option>
+          <option value="2">3 · Bottom row</option>
+          <option value="3">4 · Capitals</option>
+          <option value="4">5 · Numbers</option>
+          <option value="5">6 · Symbols</option>
+          <option value="6">7 · Special keys</option>
+          <option value="all">All keys (mixed)</option>
+        </select>
+      </label>
+      <label class="ctl toggle"><input type="checkbox" id="strict-toggle" /> Strict</label>
+      <label class="ctl">Theme
+        <select id="theme-select">
+          <option value="auto">Auto</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
+      </label>
+      <button id="start-btn" class="primary">Start session</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="stage-bar">
+      <span class="stage">Stage: <strong id="stage-label">—</strong></span>
+      <div class="hud">
+        <span class="hud-item"><label>Time</label><b id="hud-time">0:00</b></span>
+        <span class="hud-item"><label>WPM</label><b id="hud-wpm">0</b></span>
+        <span class="hud-item"><label>Accuracy</label><b id="hud-acc">100%</b></span>
+      </div>
+    </section>
+
+    <section id="prompt" class="prompt" aria-label="Text to type"></section>
+    <p id="finger-hint" class="finger-hint"></p>
+
+    <section id="keyboard" class="keyboard" aria-hidden="true"></section>
+    <div id="legend" class="legend"></div>
+
+    <section class="panel">
+      <div class="panel-card">
+        <h2>Today</h2>
+        <p class="streak">🔥 <span id="streak-val">0</span> day streak</p>
+        <p class="goal" id="goal-val">0 / 5 min today</p>
+      </div>
+      <div class="panel-card">
+        <h2>Keys to focus on</h2>
+        <div id="weak-list" class="chips"></div>
+      </div>
+      <div class="panel-card">
+        <h2>Recent WPM</h2>
+        <div id="history-bars" class="bars"></div>
+      </div>
+      <div class="panel-card danger">
+        <h2>Data</h2>
+        <button id="reset-btn" class="ghost">Reset all progress</button>
+        <p class="hint">Progress is saved in this browser only.</p>
+      </div>
+    </section>
+  </main>
+
+  <div id="summary" class="modal">
+    <div class="modal-card">
+      <h2>Session complete</h2>
+      <div id="summary-body"></div>
+      <button id="summary-close" class="primary">Done</button>
+    </div>
+  </div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
