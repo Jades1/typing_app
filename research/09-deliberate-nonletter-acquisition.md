@@ -23,11 +23,11 @@ first pass wrongly put the ramp into Adaptive.)
 
 **The Numbers round** (`acquisitionRamp()` in `engine.js`, `levelChoice === '4'`),
 derived purely from stats (nothing persisted):
-- **A couple at a time, accumulating:** digits by finger (`4,7 → 5,6 → 3,8 → 2,9 →
-  1,0`). The active pair slides forward as soon as the current ones are typed
-  *accurately* (`rampReady`: ≥8 recent attempts, ≥95%, **no speed** — so the next
-  number integrates fast); earlier numbers keep appearing (accumulating `introduced`
-  pool, weakness-weighted) so they build speed as new ones come in.
+- **A few at a time, accumulating, fast:** ~**3 digits active at once** (by finger),
+  each incorporated as soon as it's typed *accurately* just a **few times**
+  (`rampReady`: ≥4 recent attempts, ≥95%, **no speed**) — so new numbers come in
+  quickly and several interleave; earlier numbers keep appearing (accumulating
+  `introduced` pool, weakness-weighted) so they build speed as new ones arrive.
 - **Heavy over-exposure woven into real words:** ~**1 number per 2 letters (≈35% of
   keystrokes)** — e.g. `Room 747 has 747 child 74 think 747` — real words stay the
   carrier (~70%). Not isolated number drills.

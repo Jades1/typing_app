@@ -104,10 +104,10 @@ model). Key pieces in `engine.js`:
   full pool).
 - **Numbers round (research/09)**: the **"5 · Numbers" level** (`levelChoice === '4'`),
   NOT adaptive. `acquisitionRamp()` → `{track:'digits', active, introduced, next}`,
-  derived from stats (nothing persisted): a couple digits at a time by finger
-  (`4,7→5,6→…`), advancing as soon as the current ones are typed *accurately*
-  (`rampReady`: ≥8 reps/≥95%/**no speed**), with earlier digits accumulating in
-  `introduced`. `generateLine` routes `'4'` → `rampWordLine()` = ~1:2 digits woven in
+  derived from stats (nothing persisted): ~3 digits active at once by finger
+  (`RAMP_ACTIVE_N.digits`), each incorporated as soon as typed *accurately* a few
+  times (`rampReady`: ≥4 reps/≥95%/**no speed**), with earlier digits accumulating in
+  `introduced` (interleaved). `generateLine` routes `'4'` → `rampWordLine()` = ~1:2 digits woven in
   real words. Full `isMastered` (speed-gated) still accrues but doesn't drive the ramp.
   `checkProgress` emits `{type:'rampAdvance'}`. **Adaptive** gets only `sprinkleDigits()`
   (~1% — a light sprinkle), not the ramp.

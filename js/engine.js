@@ -63,7 +63,7 @@ const RAMP_SYMBOLS = [',', '.', "'", '-', '?', '!', ';', ':', '"', '/',
   '(', ')', '_', '=', '+', '@', '#', '$', '%', '&', '*', '[', ']', '^'];
 const RAMP_SPECIALS = ['Tab', 'Control', 'Alt', 'Meta'];   // Shift trained via caps
 const RAMP_MIN_LETTERS_MASTERED = 18;   // letters solid before the ramp starts
-const RAMP_ACTIVE_N = { digits: 2, symbols: 2, specials: 1 };  // "a couple at a time"
+const RAMP_ACTIVE_N = { digits: 3, symbols: 2, specials: 1 };  // digits: more at once → more interleaving
 const RAMP_REST_EVERY = 8;      // every 8th line is a normal adaptive line (mostly number lines)
 const RAMP_INJECT_P = 0.95;     // inject a ramp chunk after nearly every word
 const RAMP_CHUNK_MIN = 2, RAMP_CHUNK_MAX = 3;
@@ -590,7 +590,7 @@ let lastRampActive = null;       // for the {type:'rampAdvance'} notification
 // so the next number comes in quickly. Full speed-based mastery (gateFor) is separate.
 function rampReady(k) {
   const r = Stats.recentStats(k);
-  return r.attempts >= 8 && r.errRate <= Stats.MASTERY_MAX_ERR;
+  return r.attempts >= 4 && r.errRate <= Stats.MASTERY_MAX_ERR;   // low bar: a few accurate hits
 }
 
 // The Numbers round — the "5 · Numbers" level (stage index 4). Progressive digit
