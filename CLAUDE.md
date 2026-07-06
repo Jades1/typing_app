@@ -42,8 +42,9 @@ model). Key pieces in `engine.js`:
 - **Mastery gate** (`isMastered` via `gateFor(keyId)` — **category-aware**): over a
   **recent window** (last `RECENT_WINDOW` attempts, not lifetime). **Letters:**
   `≥MASTERY_MIN_ATTEMPTS`, `errRate ≤MASTERY_MAX_ERR`, `avgLat ≤TARGET_MS` (≈343 ms
-  = 35 WPM). **Numbers/symbols:** lenient — 12 attempts, ≤600 ms (research/06: the
-  goal is location + finger recall, not fluency). **Specials:** speed waived (no
+  = 35 WPM). **Numbers/symbols:** accuracy-only — 8 attempts, ≥95%, **speed waived**
+  (research/06: the goal is location + finger recall, not fluency — so a new number
+  integrates fast and the next slides in; speed builds later via maintenance). **Specials:** speed waived (no
   latency). Base constants live in `stats.js`; the per-category thresholds live in
   `gateFor` in `engine.js`.
 - **Sticky mastery**: once graduated a key stays graduated (`markMastered`, a

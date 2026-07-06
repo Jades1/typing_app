@@ -23,8 +23,8 @@ derived purely from mastery (nothing persisted):
   symbols (comma/period/`'` first), then specials — each set drilled until it clears
   the lenient `gateFor` gate (research/06), then the next slides in. Starts only once
   ≥18/26 letters are mastered (letters solid first).
-- **Heavy over-exposure woven into real words:** on ramp lines the active keys hit
-  **~10–40% of keystrokes** (>10× natural frequency) — as trailing punctuation
+- **Heavy over-exposure woven into real words:** ~**1 number per 2 letters (≈35% of
+  keystrokes)** — >30× natural frequency — as trailing punctuation
   (`house,`), standalone digit chunks (`the 47 house 745 plan`), or interspersed
   special keycaps — while the line stays **~70% real words** (letters keep getting
   practiced via weak-letter word-bias). Not isolated number drills.

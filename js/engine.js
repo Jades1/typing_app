@@ -63,10 +63,10 @@ const RAMP_SYMBOLS = [',', '.', "'", '-', '?', '!', ';', ':', '"', '/',
 const RAMP_SPECIALS = ['Tab', 'Control', 'Alt', 'Meta'];   // Shift trained via caps
 const RAMP_MIN_LETTERS_MASTERED = 18;   // letters solid before the ramp starts
 const RAMP_ACTIVE_N = { digits: 2, symbols: 2, specials: 1 };  // "a couple at a time"
-const RAMP_REST_EVERY = 4;      // every 4th line is a normal adaptive line
-const RAMP_INJECT_P = 0.6;      // inject a ramp chunk after a word with this probability
+const RAMP_REST_EVERY = 8;      // every 8th line is a normal adaptive line (mostly number lines)
+const RAMP_INJECT_P = 0.95;     // inject a ramp chunk after nearly every word
 const RAMP_CHUNK_MIN = 2, RAMP_CHUNK_MAX = 3;
-const RAMP_MIN_HITS = 4, RAMP_MAX_HITS = 9;   // ramp keystrokes/line (line stays ~70% words)
+const RAMP_MIN_HITS = 6, RAMP_MAX_HITS = 12;  // ramp keystrokes/line — target ~1 number per 2 letters
 const RAMP_COMPANION_P = 0.25;  // chance a chunk slot uses a mastered same-category key
 const RAMP_SENTENCE_P = 0.15;   // sentence probability on rest lines while ramping
 const RAMP_SPECIALS_PER_LINE = 2;
@@ -80,7 +80,10 @@ function gateFor(keyId) {
     return { minAttempts: Stats.MASTERY_MIN_ATTEMPTS, maxErr: Stats.MASTERY_MAX_ERR, speedMs: null, minLatSamples: 0 };
   }
   if (/^[0-9]$/.test(keyId) || isSymbolKey(keyId)) {
-    return { minAttempts: 12, maxErr: Stats.MASTERY_MAX_ERR, speedMs: 600, minLatSamples: 4 };
+    // Numbers/symbols graduate on LOCATION (accuracy), not speed — so a new key
+    // integrates fast and the next one comes in quickly (research/06). Speed then
+    // builds naturally: a mastered-but-slow key still gets maintenance remediation.
+    return { minAttempts: 8, maxErr: Stats.MASTERY_MAX_ERR, speedMs: null, minLatSamples: 0 };
   }
   return { minAttempts: Stats.MASTERY_MIN_ATTEMPTS, maxErr: Stats.MASTERY_MAX_ERR, speedMs: Stats.TARGET_MS, minLatSamples: Stats.MASTERY_MIN_LAT_SAMPLES };
 }
