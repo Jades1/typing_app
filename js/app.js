@@ -25,6 +25,9 @@ function cacheEls() {
   els.nextLabel = $('#hud-next-label');
   els.notice = $('#notice');
   els.fingers = $('#fingers-toggle');
+  els.push = $('#push-toggle');
+  els.pace = $('#hud-pace');
+  els.paceWrap = $('#hud-pace-wrap');
   els.start = $('#start-btn');
   els.minutes = $('#minutes-select');
   els.level = $('#level-select');
@@ -62,6 +65,13 @@ const SWALLOW_KEYS = new Set([
   'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
 ]);
 
+// --- push-mode pacer state ----------------------------------------------------
+const PACER_HEAD_START_CHARS = 2;   // pacer spots you 2 tokens at each line start
+const PACER_CATCH_SETBACK = 2;      // after a catch, pacer rebases this far behind you
+const PACER_CATCH_COOLDOWN_MS = 1000;
+const PACER_FLASH_MS = 450;
+let pacer = null;   // { targetWpm, charMs, lineStartTs, lastPainted, raf, catches, linesTotal, linesAhead, lineCaught, cooldownUntil, active }
+
 function renderLine() {
   els.prompt.innerHTML = '';
   tokenEls = tokens.map((tok) => {
@@ -74,6 +84,7 @@ function renderLine() {
   });
   pointer = 0;
   refreshCursor();
+  resetPacerForLine();
 }
 
 function refreshCursor() {
@@ -115,6 +126,9 @@ function handleProgressEvents(events) {
       notify(ev.level === 'sentences'
         ? 'Sentences unlocked — full fluency mode. 📝'
         : 'All letters mastered — real words unlocked! 📖', { duration: 6000 });
+    } else if (ev.type === 'rampAdvance') {
+      els.stageLabel.textContent = Engine.stageLabel();
+      notify(`Now working on ${ev.active.map(labelForKey).join(' ')}`, { duration: 4500 });
     } else if (ev.type === 'newTarget') {
       const to = labelForKey(ev.keyId);
       notify(mastered
@@ -127,6 +141,8 @@ function handleProgressEvents(events) {
 }
 
 function judge(tok, correct, isChar) {
+  // Pacer starts on the first keystroke of a line (reading time isn't penalized).
+  if (pacer && pacer.active && !pacer.lineStartTs) pacer.lineStartTs = performance.now();
   const now = Date.now();
   const latency = lastResolveTs ? now - lastResolveTs : null;
   Stats.recordKey(tok.keyId, correct, isChar ? latency : undefined);
@@ -142,7 +158,7 @@ function judge(tok, correct, isChar) {
   } else {
     Keyboard.flashError(tok);
     if (el) { el.classList.add('tok-error'); }
-    if (!Stats.getSettings().strictMode) {
+    if (!effectiveStrict()) {
       lastResolveTs = now;
       if (el) el.classList.remove('tok-current');
       pointer += 1;
@@ -195,6 +211,7 @@ function startSession() {
   els.start.textContent = 'Stop';
   els.start.classList.add('running');
   document.body.classList.add('in-session');
+  if (Stats.getSettings().pushMode) startPacer();
   nextLine();   // session is now running → announces the current target
 }
 
@@ -207,7 +224,86 @@ function endUiReset() {
   els.start.classList.remove('running');
   document.body.classList.remove('in-session');
   Keyboard.clearHighlight();
+  stopPacer();
   refreshStatsPanel();
+}
+
+// While push mode is on, don't force error correction — speed over perfection.
+// The user's own strict setting is left untouched.
+function effectiveStrict() {
+  const st = Stats.getSettings();
+  return st.strictMode && !st.pushMode;
+}
+
+// --- push-mode pacer ----------------------------------------------------------
+// A marker races through the current line at a target pace (~15% above your recent
+// average); stay ahead of it. Getting caught just flashes + rebases — no reset.
+function startPacer() {
+  const targetWpm = Stats.targetWpm();
+  pacer = {
+    targetWpm, charMs: 60000 / (targetWpm * 5), lineStartTs: 0, lastPainted: -1,
+    raf: 0, catches: 0, linesTotal: 0, linesAhead: 0, lineCaught: false,
+    cooldownUntil: 0, active: true,
+  };
+  updatePaceHud();
+  pacer.raf = requestAnimationFrame(pacerLoop);
+}
+
+function resetPacerForLine() {
+  if (!pacer) return;
+  if (pacer.lineStartTs) {          // tally the line we just left
+    pacer.linesTotal += 1;
+    if (!pacer.lineCaught) pacer.linesAhead += 1;
+  }
+  pacer.lineStartTs = 0;            // pacer waits for the first keystroke of the new line
+  pacer.lineCaught = false;
+  paintPacer(-1);
+}
+
+function pacerIndexNow(now) {
+  if (!pacer || !pacer.lineStartTs) return -1;
+  return Math.floor((now - pacer.lineStartTs) / pacer.charMs) - PACER_HEAD_START_CHARS;
+}
+
+function pacerLoop() {
+  if (!pacer || !pacer.active) return;
+  const now = performance.now();
+  const idx = pacerIndexNow(now);
+  paintPacer(idx);
+  if (idx >= pointer && pointer < tokens.length && now >= pacer.cooldownUntil) onPacerCaught(now);
+  pacer.raf = requestAnimationFrame(pacerLoop);
+}
+
+function paintPacer(idx) {
+  if (!pacer || idx === pacer.lastPainted) return;
+  tokenEls[pacer.lastPainted]?.classList.remove('tok-pacer');
+  if (idx >= 0 && idx < tokenEls.length) tokenEls[idx].classList.add('tok-pacer');
+  pacer.lastPainted = idx;
+}
+
+function onPacerCaught(now) {
+  pacer.catches += 1;
+  pacer.lineCaught = true;
+  pacer.cooldownUntil = now + PACER_CATCH_COOLDOWN_MS;
+  // rebase just behind the cursor so pressure resumes immediately (no reset).
+  pacer.lineStartTs = now - (pointer - PACER_CATCH_SETBACK + PACER_HEAD_START_CHARS) * pacer.charMs;
+  els.prompt.classList.add('pacer-caught');
+  setTimeout(() => els.prompt.classList.remove('pacer-caught'), PACER_FLASH_MS);
+}
+
+function stopPacer() {
+  if (!pacer) return;
+  cancelAnimationFrame(pacer.raf);
+  paintPacer(-1);
+  els.prompt.classList.remove('pacer-caught');
+  pacer.active = false;   // keep the object so showSummary can read the tallies
+  updatePaceHud();
+}
+
+function updatePaceHud() {
+  const on = pacer && pacer.active;
+  els.paceWrap.hidden = !on;
+  if (on) els.pace.textContent = `${pacer.targetWpm}`;
 }
 
 function fmtTime(ms) {
@@ -219,11 +315,13 @@ function updateHud(live) {
   els.time.textContent = fmtTime(live.remainingMs);
   els.wpm.textContent = Math.round(live.wpm);
   els.acc.textContent = `${Math.round(live.accuracy * 100)}%`;
-  // Adaptive has no "next key" — show the current weak-key focus instead.
+  // Adaptive has no "next key" — show the keys being learned / focused instead.
   if (Stats.getSettings().levelChoice === 'adaptive') {
-    const f = Engine.adaptiveFocus().focus;
-    els.nextLabel.textContent = 'Focus';
-    els.next.textContent = f.length ? f.map(labelForKey).join(' ') : '—';
+    const r = Engine.acquisitionRamp();
+    const f = Engine.adaptiveFocus(r).focus;
+    const show = r ? [...r.active, ...f].slice(0, 3) : f;
+    els.nextLabel.textContent = r ? 'Learning' : 'Focus';
+    els.next.textContent = show.length ? show.map(labelForKey).join(' ') : '—';
   } else {
     els.nextLabel.textContent = 'Next key';
     els.next.textContent = formatEta(Engine.nextKeyEta());
@@ -304,6 +402,12 @@ function showSummary(res) {
     ? `<p class="progress-count">Finding this hard? The <strong>Beginner course</strong> (Level menu) teaches key locations one at a time.</p>`
     : '';
 
+  // Push-mode pacer recap (pacer object survives stopPacer with its tallies).
+  const paceLine = (pacer && pacer.linesTotal > 0)
+    ? `<p class="progress">Push pacer (${pacer.targetWpm} WPM target): stayed ahead on <strong>${pacer.linesAhead} / ${pacer.linesTotal}</strong> lines · caught ${pacer.catches}×.</p>`
+    : '';
+  pacer = null;
+
   // 3. weak spots with concrete numbers
   const weak = res.weakest.length
     ? res.weakest.slice(0, 3).map((w) => {
@@ -322,6 +426,7 @@ function showSummary(res) {
       <div><span class="big">${res.streak}🔥</span><label>day streak</label></div>
     </div>
     ${trend}
+    ${paceLine}
     ${res.advancedTo ? `<p class="advanced">✅ You passed <strong>${escapeHtml(res.advancedTo)}</strong> — new keys unlocked!</p>` : ''}
     ${progressLine}
     ${progressCount}
@@ -418,6 +523,7 @@ function init() {
   applyTheme(st.theme);
   els.fingers.checked = st.showFingers;
   applyFingers(st.showFingers);
+  els.push.checked = st.pushMode;
 
   // Seed a preview line so the keyboard/highlight isn't empty before starting.
   tokens = Engine.generateLine();
@@ -439,6 +545,10 @@ function init() {
   els.level.addEventListener('change', () => { Stats.setSetting('levelChoice', els.level.value); refreshStatsPanel(); if (!session || !session.isRunning()) { tokens = Engine.generateLine(); renderLine(); Keyboard.clearHighlight(); refreshKeyboardMastery(); } });
   els.strict.addEventListener('change', () => Stats.setSetting('strictMode', els.strict.checked));
   els.fingers.addEventListener('change', () => { Stats.setSetting('showFingers', els.fingers.checked); applyFingers(els.fingers.checked); });
+  els.push.addEventListener('change', () => {
+    Stats.setSetting('pushMode', els.push.checked);
+    if (session && session.isRunning()) { if (els.push.checked) startPacer(); else stopPacer(); }
+  });
   els.theme.addEventListener('change', () => { Stats.setSetting('theme', els.theme.value); applyTheme(els.theme.value); });
   els.reset.addEventListener('click', () => {
     if (confirm('Reset all progress and stats? This cannot be undone.')) {

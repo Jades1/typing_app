@@ -52,6 +52,26 @@ const PROBE_EVERY = 3;            // coverage probe burst at most every N lines
 const ADAPT_SENTENCE_P = 0.35;    // sentence-line probability (when no burst pending)
 const BURST_TRIM = 8;             // chars trimmed from the word backbone when a burst is injected
 
+// --- deliberate non-letter acquisition ramp (adaptive mode, research/09) ------
+// Numbers/symbols/specials are hard AND rare in text, so they need OVER-practice
+// to be learned. Introduce a couple at a time and over-expose them (far above
+// natural frequency) woven inside real words, until each masters (lenient gate);
+// then they fall back to normal impact-weighted remediation.
+const RAMP_DIGITS = ['4', '7', '5', '6', '3', '8', '2', '9', '1', '0'];  // by finger, easiest reach out
+const RAMP_SYMBOLS = [',', '.', "'", '-', '?', '!', ';', ':', '"', '/',
+  '(', ')', '_', '=', '+', '@', '#', '$', '%', '&', '*', '[', ']', '^'];
+const RAMP_SPECIALS = ['Tab', 'Control', 'Alt', 'Meta'];   // Shift trained via caps
+const RAMP_MIN_LETTERS_MASTERED = 18;   // letters solid before the ramp starts
+const RAMP_ACTIVE_N = { digits: 2, symbols: 2, specials: 1 };  // "a couple at a time"
+const RAMP_REST_EVERY = 4;      // every 4th line is a normal adaptive line
+const RAMP_INJECT_P = 0.6;      // inject a ramp chunk after a word with this probability
+const RAMP_CHUNK_MIN = 2, RAMP_CHUNK_MAX = 3;
+const RAMP_MIN_HITS = 4, RAMP_MAX_HITS = 9;   // ramp keystrokes/line (line stays ~70% words)
+const RAMP_COMPANION_P = 0.25;  // chance a chunk slot uses a mastered same-category key
+const RAMP_SENTENCE_P = 0.15;   // sentence probability on rest lines while ramping
+const RAMP_SPECIALS_PER_LINE = 2;
+const RAMP_TRAIL_SYMBOLS = new Set([',', '.', '?', '!', ';', ':', "'"]);  // attach to a word's end
+
 // Numbers/symbols use a faster, accuracy-focused gate than letters — research says
 // the competency for low-frequency keys is location + finger recall, not fluency
 // (see research/06). Specials keep speed waived. Values in ms / counts.
@@ -555,15 +575,42 @@ let burstRotation = 0;
 let probeRotation = 0;
 let sessionKeySnapshot = null;   // keyId -> {attempts, errRate, avgLat} at session start (for the summary)
 let _letterWordCount = null;     // letter -> # corpus words containing it (static, lazy)
+let lastRampActive = null;       // for the {type:'rampAdvance'} notification
+
+// The current deliberate-acquisition ramp, derived purely from mastery state
+// (nothing persisted). Tracks run sequentially — digits → symbols → specials —
+// so at most RAMP_ACTIVE_N keys are being introduced at once, over-exposed inside
+// words until each masters. Returns null in non-adaptive modes / when all mastered.
+// → { track, active:[…], next:string|null, pending:Set }
+export function acquisitionRamp() {
+  if (Stats.getSettings().levelChoice !== 'adaptive') return null;
+  const pool = activePool();
+  if (pool.letters.filter((l) => isMastered(l)).length < RAMP_MIN_LETTERS_MASTERED) return null;
+  for (const [track, order] of [['digits', RAMP_DIGITS], ['symbols', RAMP_SYMBOLS], ['specials', RAMP_SPECIALS]]) {
+    const unmastered = order.filter((k) => !isMastered(k));
+    if (!unmastered.length) continue;
+    return {
+      track,
+      active: unmastered.slice(0, RAMP_ACTIVE_N[track]),
+      next: unmastered[RAMP_ACTIVE_N[track]] ?? null,
+      pending: new Set(unmastered),
+    };
+  }
+  return null;   // all ramp keys mastered → pure maintenance mode
+}
 
 // { focus: string[] (≤N, weakest first — enough data & measures weak),
 //   probes: string[] (too little recent data, or a stale digit/symbol) }
-export function adaptiveFocus() {
+// Keys the ramp is currently introducing are filtered out — they're over-exposed
+// already and must not eat focus slots or double-fire as probes.
+export function adaptiveFocus(ramp = acquisitionRamp()) {
   const pool = activePool();
   const ids = [...pool.letters, ...pool.digits, ...pool.symbols];  // NOT specials — they wreck flow
   const base = Stats.baselineLatency();
+  const rampPending = ramp?.pending ?? new Set();
   const focus = []; const probes = [];
   for (const id of ids) {
+    if (rampPending.has(id)) continue;
     const r = Stats.recentStats(id);
     const isLetter = /^[a-z]$/.test(id);
     const stale = !isLetter && Stats.timesSinceSeen(id) > ADAPT_STALE;
@@ -618,19 +665,81 @@ function spliceAtSpace(tokens, burst) {
   tokens.splice(best + 1, 0, ...burst, spaceToken());
 }
 
+// A short chunk (2–3) of the active ramp keys, occasionally an already-mastered
+// same-category companion so it interleaves rather than massing.
+function rampChunkTokens(ramp) {
+  const pool = activePool();
+  const cat = ramp.track === 'digits' ? pool.digits : pool.symbols;
+  const companions = cat.filter((k) => !ramp.pending.has(k) && Stats.keyStat(k).attempts > 0);
+  const sampler = makeSampler(ramp.active, null, null);
+  const len = RAMP_CHUNK_MIN + Math.floor(pseudoRandom() * (RAMP_CHUNK_MAX - RAMP_CHUNK_MIN + 1));
+  const out = [];
+  for (let i = 0; i < len; i++) {
+    const useCompanion = companions.length && pseudoRandom() < RAMP_COMPANION_P;
+    out.push(charToken(useCompanion
+      ? companions[Math.floor(pseudoRandom() * companions.length)]
+      : sampler.pick(null)));
+  }
+  return out;
+}
+
+// A word line with the active ramp keys woven through at high density — real words
+// stay the carrier (~70% of chars) and weak letters still get word-bias.
+function rampWordLine(ramp, weak) {
+  const allowed = fluencyLetterSet();
+  const eligible = Words.eligibleWords(allowed);
+  const caps = activePool().caps;
+  const tokens = [];
+  let chars = 0; let n = 0; let hits = 0; let specialsThisLine = 0;
+  while (chars < WORD_LINE_TARGET_CHARS && n < WORD_LINE_MAX_WORDS) {
+    const word = pickWord(eligible, weak);
+    tokens.push(...wordTokens(word, caps));
+    chars += word.length; n += 1;
+    if (hits < RAMP_MAX_HITS && pseudoRandom() < RAMP_INJECT_P) {
+      if (ramp.track === 'specials') {
+        if (specialsThisLine < RAMP_SPECIALS_PER_LINE) {
+          tokens.push(spaceToken(), specialToken(ramp.active[0]));
+          specialsThisLine += 1; hits += 1; chars += 2;
+        }
+      } else if (ramp.track === 'symbols'
+          && RAMP_TRAIL_SYMBOLS.has(ramp.active[Math.floor(pseudoRandom() * ramp.active.length)])) {
+        // trailing punctuation reads naturally attached to the word (house, plan?)
+        const sym = ramp.active.filter((s) => RAMP_TRAIL_SYMBOLS.has(s));
+        tokens.push(charToken(sym[Math.floor(pseudoRandom() * sym.length)])); hits += 1; chars += 1;
+      } else {
+        const chunk = rampChunkTokens(ramp);          // standalone digit/symbol chunk
+        tokens.push(spaceToken(), ...chunk); hits += chunk.length; chars += chunk.length + 1;
+      }
+    }
+    tokens.push(spaceToken());
+  }
+  if (hits < RAMP_MIN_HITS) {                          // guarantee real practice every ramp line
+    if (ramp.track === 'specials') tokens.push(specialToken(ramp.active[0]), spaceToken());
+    else tokens.push(...rampChunkTokens(ramp), spaceToken());
+  }
+  while (tokens.length && tokens[tokens.length - 1].type === 'space') tokens.pop();
+  return tokens;
+}
+
 function adaptiveLine() {
   adaptLineNo += 1;
-  const { focus, probes } = adaptiveFocus();
-  const burstKey = pickBurstKey(focus, probes);
+  const ramp = acquisitionRamp();
+  const { focus, probes } = adaptiveFocus(ramp);
+  const letterFocus = new Set(focus.filter((k) => /^[a-z]$/.test(k)));
+  const weak = letterFocus.size ? letterFocus : null;
 
-  // Real prose only when no burst is pending (bursts belong inside word lines).
-  if (!burstKey && pseudoRandom() < ADAPT_SENTENCE_P) {
+  // Acquisition: most lines over-expose the active ramp keys woven inside words.
+  if (ramp && adaptLineNo % RAMP_REST_EVERY !== 0) return rampWordLine(ramp, weak);
+
+  // Rest lines / no ramp: bursts + sentences + word lines (maintenance behavior).
+  const burstKey = pickBurstKey(focus, probes);
+  const sentenceP = ramp ? RAMP_SENTENCE_P : ADAPT_SENTENCE_P;
+  if (!burstKey && pseudoRandom() < sentenceP) {
     const s = sentenceLine(false);
     if (s) return s;
   }
-  const letterFocus = new Set(focus.filter((k) => /^[a-z]$/.test(k)));
   const targetChars = burstKey ? WORD_LINE_TARGET_CHARS - BURST_TRIM : WORD_LINE_TARGET_CHARS;
-  const tokens = wordLine(targetChars, letterFocus.size ? letterFocus : null);
+  const tokens = wordLine(targetChars, weak);
   if (burstKey) spliceAtSpace(tokens, burstTokens(burstKey));
   return tokens;
 }
@@ -795,6 +904,7 @@ export function startTracking() {
   lastWord = null;
   recentSentences = [];
   adaptLineNo = 0; burstRotation = 0; probeRotation = 0;
+  lastRampActive = acquisitionRamp()?.active.join(' ') ?? '';   // seed: no spurious ramp notice
   // Per-key snapshot so the adaptive summary can report which keys improved.
   sessionKeySnapshot = {};
   for (const id of Object.keys(Stats.getState().keys)) {
@@ -823,6 +933,15 @@ export function checkProgress() {
         Stats.markMastered(k);
         events.push({ type: 'mastered', keyId: k });
       }
+    }
+    // Acquisition ramp advanced to the next key(s) (adaptive only).
+    if (adaptive) {
+      const r = acquisitionRamp();
+      const activeStr = r ? r.active.join(' ') : '';
+      if (lastRampActive !== null && activeStr && activeStr !== lastRampActive) {
+        events.push({ type: 'rampAdvance', active: r.active });
+      }
+      lastRampActive = activeStr;
     }
     // Curriculum progression (targets / level-ups) is Beginner-course only.
     if (!adaptive) {
@@ -942,6 +1061,8 @@ export function sessionKeyDeltas(minReps = 6) {
 export function stageLabel() {
   const c = Stats.getSettings().levelChoice;
   if (c === 'adaptive') {
+    const r = acquisitionRamp();
+    if (r) return `Adaptive — learning ${r.active.join(' ')}`;
     const f = adaptiveFocus().focus;
     return f.length ? `Adaptive — focus: ${f.join(' ')}` : 'Adaptive — building your profile';
   }

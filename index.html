@@ -57,11 +57,15 @@
       <label class="ctl toggle" title="Show which finger to use. Turn off once the keys are automatic.">
         <input type="checkbox" id="fingers-toggle" checked /> Finger guide
       </label>
+      <label class="ctl toggle" title="A pace marker runs ~15% above your recent average — try to stay ahead of it. Errors are tolerated; speed is the point.">
+        <input type="checkbox" id="push-toggle" /> Push mode
+      </label>
       <div class="hud">
         <span class="hud-item"><label>Time</label><b id="hud-time">0:00</b></span>
         <span class="hud-item"><label>WPM</label><b id="hud-wpm">0</b></span>
         <span class="hud-item"><label>Accuracy</label><b id="hud-acc">100%</b></span>
         <span class="hud-item"><label id="hud-next-label">Next key</label><b id="hud-next">—</b></span>
+        <span class="hud-item" id="hud-pace-wrap" hidden><label>Pace target</label><b id="hud-pace">—</b></span>
       </div>
     </section>
 

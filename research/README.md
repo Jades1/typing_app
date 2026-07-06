@@ -22,11 +22,12 @@ whenever we research or decide something.
 | [01](01-interleaving-contextual-interference.md) | Interleave **mastered** keys only, never a batch of un-mastered ones | Contextual-interference effect: mixed practice aids retention/transfer | PEER-REVIEWED | **Adopted** |
 | [02](02-mastery-one-key-at-a-time.md) | Introduce **one key at a time**, drill to a per-key gate before advancing | Overlearning → automaticity; standard touch-typing pedagogy | Mixed (peer-reviewed + curricula) | **Adopted** |
 | [03](03-keybr-thresholds.md) | Gate = **~35 WPM (≤343 ms/key) + ≥95% accuracy** over a recent window | keybr's confidence threshold | COMMERCIAL / community | **Adopted** |
-| [04](04-plateaus-push-faster.md) | Add a "push" mode: type ~10–15% faster than comfortable to break plateaus | Deliberate-practice research | Mixed | **Open / candidate** |
+| [04](04-plateaus-push-faster.md) | **Push mode**: a pace marker at ~1.15× your recent avg to break plateaus | Deliberate-practice research | Mixed | **Built** |
 | [05](05-chunking-words-vs-clusters.md) | Add a **real-words → sentences** phase after key mastery | Expert typing = bigram/word chunking; clusters don't train transfer | PEER-REVIEWED (science) + COMMERCIAL (numbers) | **Built** |
 | [06](06-numbers-symbols-gate.md) | **Faster, accuracy-focused gate** for numbers/symbols (~600 ms, fewer reps) | Low-frequency keys need location + finger recall, not fluency | COMMERCIAL | **Built** |
 | [07](07-content-first-adaptive-default.md) | **Content-first adaptive is the default**; sequential curriculum demoted to a "Beginner course" toggle | Target user is an improver uncertain of a few keys, not an absolute beginner | derived from 02 + 05 | **Built** |
 | [08](08-key-importance-weighting.md) | Rank what-to-work-on by **impact = weakness × usage frequency** (a weak common `p` beats a weak rare `$`) | Improving a common key pays off across all typing; a rare key barely moves the needle | ANECDOTAL (letter-freq data) | **Built** |
+| [09](09-deliberate-nonletter-acquisition.md) | **Progressive over-exposure ramp** for numbers/symbols/specials (a couple at a time, woven into words) until mastered | Rare-but-needed keys require deliberate over-practice, not frequency-weighted neglect | derived from 02 + 06 + 08 | **Built** |
 
 ## Status legend
 **Adopted** = in the app · **Proposed** = decided, not yet built · **Open /

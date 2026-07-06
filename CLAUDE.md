@@ -101,6 +101,17 @@ model). Key pieces in `engine.js`:
   mid-session via `checkProgress()`. `'all'`/`'words'`/`'sentences'` are **fluency
   modes** (`FLUENCY_MODES`); `FULL_POOL_MODES` adds `'adaptive'` (all = null target,
   full pool).
+- **Acquisition ramp (adaptive, research/09)**: `acquisitionRamp()` → `{track, active,
+  next, pending}`, derived from mastery (nothing persisted). Introduces non-letter keys a
+  couple at a time (digits by finger `4,7→5,6→…` → symbols → specials) once ≥18/26 letters
+  mastered; `rampWordLine()` over-exposes the active keys (~10–40% of keystrokes) woven in
+  real words until each masters (lenient `gateFor`), then they fall back to `impact`-weighted
+  remediation. `adaptiveFocus(ramp)` filters `ramp.pending`. `checkProgress` emits
+  `{type:'rampAdvance'}`. `importance`/`impact` unchanged — ramp branches before them.
+- **Push mode (research/04)**: `settings.pushMode` (home-screen toggle) → a rAF pacer in
+  `app.js` (`startPacer`/`pacerLoop`/`onPacerCaught`) sweeps the prompt at `Stats.targetWpm()`
+  (recent avg ×1.15, floored 20); non-punishing catch (flash+rebase). `effectiveStrict() =
+  strictMode && !pushMode` relaxes error-correction while pushing (never mutates stored setting).
 - **Material level** (`materialLevel()` → `clusters | words | sentences`, research/05):
   a *derived* function of mastery state, **nothing new persisted**. Once all pool
   letters are mastered, the letters backbone of a line renders **real words** (from

@@ -33,6 +33,7 @@ const DEFAULT_STATE = () => ({
     dailyGoalMinutes: 5,
     showFingers: true,      // finger-guidance scaffolding (hint text); toggled on the home screen
     adaptiveNoticeShown: false, // one-time "Adaptive mode is new" notice for grandfathered users
+    pushMode: false,        // pacer: chase a target ~15% above your recent average (research/04)
   },
 });
 
@@ -231,6 +232,15 @@ export function minutesToday() {
 
 export function recentSessions(n = 20) {
   return state.sessions.slice(-n);
+}
+
+// Push-mode pace target: `mult`× the mean WPM of the last few sessions, floored so
+// beginners aren't chasing an impossible number and capped for sanity. (research/04)
+export function targetWpm(mult = 1.15, floor = 20, cap = 120, window = 5) {
+  const s = recentSessions(window).filter((x) => (x.wpm || 0) > 0);
+  if (!s.length) return floor + 5;   // no history → a gentle default
+  const avg = s.reduce((a, x) => a + x.wpm, 0) / s.length;
+  return Math.round(Math.min(cap, Math.max(floor, avg * mult)));
 }
 
 // Compare the most-recent (just-recorded) session against the mean of the prior

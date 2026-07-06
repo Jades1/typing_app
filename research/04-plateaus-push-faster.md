@@ -14,12 +14,15 @@ faster?
 - This is classic deliberate practice — working at the edge of current ability,
   not repeating what's already easy.
 
-## What this means for us
-**Not yet implemented.** Candidate feature: a "push"/speed-stretch mode (or an
-end-of-mastery burst) that sets a pace target ~10–15% above the learner's current
-per-key/overall speed and accepts a higher error rate during the stretch. Would
-pair well with the mastery gate (drill to accurate → then push for speed).
-→ Decision 04 (**Open / candidate**).
+## What we built (Decision 04 — Built)
+**"Push mode"** — a home-screen toggle. When on, a visual **pace marker** sweeps
+through the current line at a **target WPM = your recent-average × 1.15** (floored
+at 20 so beginners aren't chasing an impossible number); you try to stay ahead of
+it. The catch is deliberately non-punishing (amber flash + rebase just behind you,
+no line reset) so it creates pressure without frustration, and **strict mode
+auto-relaxes** while pushing (speed over perfection — the point of the technique).
+The pacer starts on the first keystroke of each line (reading time isn't penalized).
+Pairs with everything else — it paces whatever content you're practicing.
 
 ## Sources
 - Ericsson et al., deliberate-practice account of typing proficiency (TU Darmstadt
