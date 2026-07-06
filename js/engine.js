@@ -394,12 +394,18 @@ export function materialLevel() {
   return 'words';
 }
 
-function weakestMasteredLetter() {
+// Which letters real words may use. Explicit Words/Sentences modes are PERMISSIVE
+// (the whole alphabet — the user chose a fluency mode, so show real words even
+// before mastery); the automatic terminal-fluency path uses only mastered letters.
+function fluencyLetterSet() {
+  const lc = Stats.getSettings().levelChoice;
+  if (lc === 'words' || lc === 'sentences') return new Set(activePool().letters);
+  return masteredLetterSet();
+}
+
+function weakestOf(letterSet) {
   let best = null; let bestW = -Infinity;
-  for (const l of masteredLetterSet()) {
-    const w = weakness(l);
-    if (w > bestW) { bestW = w; best = l; }
-  }
+  for (const l of letterSet) { const w = weakness(l); if (w > bestW) { bestW = w; best = l; } }
   return best;
 }
 
@@ -412,13 +418,12 @@ function scoreWord(word, rank, nWords, weakestLetter) {
   return w / (1 + RECENT_WORD_PENALTY * r);                            // breadth
 }
 
-function pickWord(eligible) {
+function pickWord(eligible, weakest) {
   let candidates = eligible;
   if (eligible.length > 1 && lastWord) {
     const noLast = eligible.filter((w) => w !== lastWord);
     if (noLast.length) candidates = noLast;
   }
-  const weakest = weakestMasteredLetter();
   const rankOf = new Map(eligible.map((w, i) => [w, i]));   // freq rank = position
   const weights = candidates.map((w) => scoreWord(w, rankOf.get(w), eligible.length, weakest));
   const chosen = weightedIndex(candidates, weights);
@@ -435,12 +440,14 @@ function wordTokens(word, allowCaps) {
 }
 
 function wordLine() {
-  const eligible = Words.eligibleWords(masteredLetterSet());
+  const allowed = fluencyLetterSet();
+  const eligible = Words.eligibleWords(allowed);
   const caps = activePool().caps;
+  const weakest = weakestOf(allowed);
   const tokens = [];
   let chars = 0; let n = 0;
   while (chars < WORD_LINE_TARGET_CHARS && n < WORD_LINE_MAX_WORDS) {
-    const w = pickWord(eligible);
+    const w = pickWord(eligible, weakest);
     tokens.push(...wordTokens(w, caps), spaceToken());
     chars += w.length + 1; n += 1;
   }
@@ -450,19 +457,24 @@ function wordLine() {
 
 // --- sentences (drawn verbatim from the bundled corpus, filtered to typeable keys) ---
 
-function charTypeable(ch, pool) {
+// requireMastery=false (explicit Sentences mode) → only checks the char is a key
+// in the pool, not that it's mastered, so real sentences show up right away.
+function charTypeable(ch, pool, requireMastery) {
   if (ch === ' ') return true;
-  if (/[a-z]/.test(ch)) return pool.letters.includes(ch) && isMastered(ch);
-  if (/[A-Z]/.test(ch)) return pool.caps && isMastered(ch.toLowerCase());  // NOT isMastered('Shift')
-  if (/[0-9]/.test(ch)) return pool.digits.includes(ch) && isMastered(ch);
-  return pool.symbols.includes(ch) && isMastered(ch);   // '.', ',', '!', '?', "'" etc. are per-char keyIds
+  const m = (id) => !requireMastery || isMastered(id);
+  if (/[a-z]/.test(ch)) return pool.letters.includes(ch) && m(ch);
+  if (/[A-Z]/.test(ch)) return pool.caps && m(ch.toLowerCase());  // NOT isMastered('Shift')
+  if (/[0-9]/.test(ch)) return pool.digits.includes(ch) && m(ch);
+  return pool.symbols.includes(ch) && m(ch);   // '.', ',', '!', '?', "'" etc. are per-char keyIds
 }
 
-function sentenceEligible(s, pool) { return [...s].every((ch) => charTypeable(ch, pool)); }
+function sentenceEligible(s, pool, requireMastery) {
+  return [...s].every((ch) => charTypeable(ch, pool, requireMastery));
+}
 
-function eligibleSentences() {
+function eligibleSentences(requireMastery = true) {
   const pool = activePool();
-  return Words.SENTENCES.filter((s) => sentenceEligible(s, pool));
+  return Words.SENTENCES.filter((s) => sentenceEligible(s, pool, requireMastery));
 }
 
 function sentenceTokens(s) {
@@ -478,10 +490,11 @@ function uniqueBaseChars(s) {
   return [...set];
 }
 
-function sentenceLine() {
+function sentenceLine(requireMastery = true) {
   const pool = activePool();
-  let candidates = Words.SENTENCES.filter((s) => sentenceEligible(s, pool) && !recentSentences.includes(s));
-  if (!candidates.length) candidates = eligibleSentences();
+  let candidates = Words.SENTENCES.filter((s) => sentenceEligible(s, pool, requireMastery) && !recentSentences.includes(s));
+  if (!candidates.length) candidates = eligibleSentences(requireMastery);
+  if (!candidates.length) return null;
   const weights = candidates.map((s) => {
     const chars = uniqueBaseChars(s);
     return chars.length ? chars.reduce((a, ch) => a + weakness(ch), 0) / chars.length : 0.01;
@@ -496,23 +509,29 @@ function sentenceLine() {
 export function generateLine() {
   const lc = Stats.getSettings().levelChoice;
 
-  // Explicit fluency modes (manual level select).
-  if (lc === 'sentences' && sentencesReady() && eligibleSentences().length >= MIN_ELIGIBLE_SENTENCES) {
-    return sentenceLine();
+  // Explicit fluency modes (manual level select): the user chose Words/Sentences,
+  // so ALWAYS render real material using the whole alphabet — never fall back to
+  // pseudoword clusters. (fluencyLetterSet() / requireMastery=false make these
+  // permissive; adaptive weakness weighting still applies.)
+  if (lc === 'sentences') {
+    const s = sentenceLine(false);
+    if (s) return s;                 // else fall through to words
   }
-  if ((lc === 'words' || lc === 'sentences')
-      && Words.eligibleWords(masteredLetterSet()).length >= MIN_ELIGIBLE_WORDS) {
-    return wordLine();
+  if (lc === 'words' || lc === 'sentences') {
+    return wordLine();               // full alphabet → always ≥ MIN_ELIGIBLE_WORDS
   }
 
   const target = targetKey();
 
   // Terminal fluency in auto / '<n>' / 'all': no target left and words available →
   // mix sentence / word / occasional classic mixed lines (keeps digits/symbols alive).
-  if (target === null && lc !== 'words' && lc !== 'sentences' && materialLevel() !== 'clusters') {
+  if (target === null && materialLevel() !== 'clusters') {
     const mat = materialLevel();
     if (pseudoRandom() >= MIXED_LINE_P) {
-      if (mat === 'sentences' && pseudoRandom() < SENTENCE_LINE_P) return sentenceLine();
+      if (mat === 'sentences' && pseudoRandom() < SENTENCE_LINE_P) {
+        const s = sentenceLine(true);
+        if (s) return s;
+      }
       return wordLine();
     }
     // else fall through to a classic mixed line (with a words backbone, below)
@@ -578,13 +597,14 @@ export function generateLine() {
     ? Words.eligibleWords(masteredLetterSet()).filter((w) => w.length <= MAX_WORD_LEN_MIXED)
     : null;
   const wordsForLetters = useWords && shortWords.length >= MIN_ELIGIBLE_WORDS;
+  const shortWeakest = wordsForLetters ? weakestOf(masteredLetterSet()) : null;
 
   const order = interleaveSlots(counts);
   const tokens = [];
   for (const cat of order) {
     if (cat === 'letters') {
       tokens.push(...(wordsForLetters
-        ? wordTokens(pickWord(shortWords), pool.caps)
+        ? wordTokens(pickWord(shortWords, shortWeakest), pool.caps)
         : letterCluster(letterSampler, pool.letters, pool.caps)));
     }
     else if (cat === 'digits') tokens.push(charToken(digitSampler.pick(null)));

@@ -96,6 +96,12 @@ model). Key pieces in `engine.js`:
   acquisition (targets, slot floors) continues around the word material.
   `checkProgress()` emits `{type:'material'}` on promotion → app.js notifies.
   **Trap:** test `pool.caps`, never `isMastered('Shift')` (Shift is never gated).
+  **Explicit vs auto:** the *automatic* progression gates words/sentences on mastery
+  (via `masteredLetterSet()` / `requireMastery`). But **manually selecting** the
+  `'words'`/`'sentences'` level is PERMISSIVE — `fluencyLetterSet()` uses the whole
+  alphabet and `sentenceLine(false)` skips the mastery check, so picking a fluency
+  mode always shows real words/sentences (never a cluster fallback). The user chose
+  it; adaptivity (weakness weighting) still applies.
 - **Finger toggle**: `settings.showFingers` (home-screen checkbox) toggles
   `body.no-fingers`, which hides `#finger-hint`. Key colour tints stay on.
 - **Session feedback**: `showSummary()` (`app.js`) surfaces progress from data
