@@ -40,6 +40,18 @@ const RECENT_WORD_DECAY = 0.55;
 const RECENT_WORD_PENALTY = 1.8;
 const SENTENCE_NO_REPEAT = 5;
 
+// --- content-first adaptive mode constants -----------------------------------
+const ADAPT_FOCUS_N = 3;          // max keys under active remediation at once (surgical)
+const ADAPT_MIN_ATTEMPTS = 8;     // recent attempts before a key can be judged weak
+const ADAPT_ERR_WEAK = 0.10;      // recent error rate ≥ this → weak
+const ADAPT_LAT_WEAK = 1.40;      // recent avgLat ≥ 1.4 × your median → weak
+const ADAPT_STALE = 2000;         // keystrokes since a digit/symbol was seen → re-probe
+const MIN_FOCUS_WORDS = 4;        // < this many corpus words contain the letter → burst instead
+const DRILL_EVERY = 2;            // focus-key burst at most every N lines
+const PROBE_EVERY = 3;            // coverage probe burst at most every N lines
+const ADAPT_SENTENCE_P = 0.35;    // sentence-line probability (when no burst pending)
+const BURST_TRIM = 8;             // chars trimmed from the word backbone when a burst is injected
+
 // Numbers/symbols use a faster, accuracy-focused gate than letters — research says
 // the competency for low-frequency keys is location + finger recall, not fluency
 // (see research/06). Specials keep speed waived. Values in ms / counts.
@@ -89,11 +101,13 @@ export function poolFor(stageIndex, all = false) {
 }
 
 const FLUENCY_MODES = new Set(['all', 'words', 'sentences']);
+// Modes with no key-introduction curriculum → full keyboard, no target.
+const FULL_POOL_MODES = new Set(['all', 'words', 'sentences', 'adaptive']);
 
 export function activePool() {
   const st = Stats.getSettings();
   const c = st.levelChoice;
-  if (FLUENCY_MODES.has(c)) return poolFor(0, true);   // full pool
+  if (FULL_POOL_MODES.has(c)) return poolFor(0, true);   // full pool
   if (c === 'auto') return poolFor(st.stage);
   return poolFor(parseInt(c, 10));          // a specific level index (cumulative)
 }
@@ -114,7 +128,7 @@ export function stageKeys(index) {
 // with easier keys from earlier levels. Returns a Set or null.
 export function focusSet() {
   const c = Stats.getSettings().levelChoice;
-  if (c === 'auto' || FLUENCY_MODES.has(c)) return null;
+  if (c === 'auto' || FULL_POOL_MODES.has(c)) return null;
   return new Set(stageKeys(parseInt(c, 10)));
 }
 
@@ -165,7 +179,7 @@ export function confidenceMap() {
 function introductionOrder() {
   const st = Stats.getSettings();
   const c = st.levelChoice;
-  if (FLUENCY_MODES.has(c)) {
+  if (FULL_POOL_MODES.has(c)) {
     const order = [];
     for (let i = 0; i < STAGES.length; i++) order.push(...stageKeys(i));
     return order;
@@ -182,7 +196,7 @@ function introductionOrder() {
 // The single un-mastered key currently being introduced (null in 'all' mode or
 // when everything eligible is mastered).
 export function targetKey() {
-  if (FLUENCY_MODES.has(Stats.getSettings().levelChoice)) return null;
+  if (FULL_POOL_MODES.has(Stats.getSettings().levelChoice)) return null;
   for (const k of introductionOrder()) if (!isMastered(k)) return k;
   return null;
 }
@@ -399,7 +413,7 @@ export function materialLevel() {
 // before mastery); the automatic terminal-fluency path uses only mastered letters.
 function fluencyLetterSet() {
   const lc = Stats.getSettings().levelChoice;
-  if (lc === 'words' || lc === 'sentences') return new Set(activePool().letters);
+  if (lc === 'words' || lc === 'sentences' || lc === 'adaptive') return new Set(activePool().letters);
   return masteredLetterSet();
 }
 
@@ -409,23 +423,27 @@ function weakestOf(letterSet) {
   return best;
 }
 
-function scoreWord(word, rank, nWords, weakestLetter) {
+function scoreWord(word, rank, nWords, weakSet /* Set<letter> | null */) {
   const uniq = [...new Set(word)];
   let w = uniq.reduce((a, ch) => a + weakness(ch), 0) / uniq.length;   // mean letter weakness
   w *= 1 + FREQ_WEIGHT * (1 - rank / nWords);                          // favor common words
-  if (weakestLetter && word.includes(weakestLetter)) w *= WEAK_WORD_BOOST;
+  if (weakSet && weakSet.size) {                                       // boost per weak-key hit (cap 2 hits)
+    let hits = 0;
+    for (const l of weakSet) if (word.includes(l)) hits += 1;
+    if (hits) w *= Math.min(WEAK_WORD_BOOST ** hits, WEAK_WORD_BOOST ** 2);
+  }
   const r = recentWords.get(word) || 0;
   return w / (1 + RECENT_WORD_PENALTY * r);                            // breadth
 }
 
-function pickWord(eligible, weakest) {
+function pickWord(eligible, weakSet) {
   let candidates = eligible;
   if (eligible.length > 1 && lastWord) {
     const noLast = eligible.filter((w) => w !== lastWord);
     if (noLast.length) candidates = noLast;
   }
   const rankOf = new Map(eligible.map((w, i) => [w, i]));   // freq rank = position
-  const weights = candidates.map((w) => scoreWord(w, rankOf.get(w), eligible.length, weakest));
+  const weights = candidates.map((w) => scoreWord(w, rankOf.get(w), eligible.length, weakSet));
   const chosen = weightedIndex(candidates, weights);
   for (const [k, v] of recentWords) recentWords.set(k, v * RECENT_WORD_DECAY);
   recentWords.set(chosen, (recentWords.get(chosen) || 0) + 1);
@@ -439,15 +457,16 @@ function wordTokens(word, allowCaps) {
   return chars.map(charToken);
 }
 
-function wordLine() {
+function wordLine(targetChars = WORD_LINE_TARGET_CHARS, weakSet = null) {
   const allowed = fluencyLetterSet();
   const eligible = Words.eligibleWords(allowed);
   const caps = activePool().caps;
-  const weakest = weakestOf(allowed);
+  const w0 = weakestOf(allowed);
+  const weak = weakSet ?? (w0 ? new Set([w0]) : null);   // default: single weakest letter (legacy behavior)
   const tokens = [];
   let chars = 0; let n = 0;
-  while (chars < WORD_LINE_TARGET_CHARS && n < WORD_LINE_MAX_WORDS) {
-    const w = pickWord(eligible, weakest);
+  while (chars < targetChars && n < WORD_LINE_MAX_WORDS) {
+    const w = pickWord(eligible, weak);
     tokens.push(...wordTokens(w, caps), spaceToken());
     chars += w.length + 1; n += 1;
   }
@@ -505,9 +524,101 @@ function sentenceLine(requireMastery = true) {
   return sentenceTokens(s);
 }
 
+// --- content-first adaptive mode ----------------------------------------------
+// Type real words/sentences; the engine finds the ≤ADAPT_FOCUS_N keys you're
+// actually shaky on and drills THOSE (weak-key-biased words + targeted bursts for
+// keys words can't cover), without re-drilling keys you're already fine on.
+
+let adaptLineNo = 0;
+let burstRotation = 0;
+let probeRotation = 0;
+let sessionKeySnapshot = null;   // keyId -> {attempts, errRate, avgLat} at session start (for the summary)
+let _letterWordCount = null;     // letter -> # corpus words containing it (static, lazy)
+
+// { focus: string[] (≤N, weakest first — enough data & measures weak),
+//   probes: string[] (too little recent data, or a stale digit/symbol) }
+export function adaptiveFocus() {
+  const pool = activePool();
+  const ids = [...pool.letters, ...pool.digits, ...pool.symbols];  // NOT specials — they wreck flow
+  const base = Stats.baselineLatency();
+  const focus = []; const probes = [];
+  for (const id of ids) {
+    const r = Stats.recentStats(id);
+    const isLetter = /^[a-z]$/.test(id);
+    const stale = !isLetter && Stats.timesSinceSeen(id) > ADAPT_STALE;
+    if (r.attempts < ADAPT_MIN_ATTEMPTS || stale) { probes.push(id); continue; }
+    const slow = r.latSamples >= 3 && r.avgLat >= ADAPT_LAT_WEAK * base;
+    if (r.errRate >= ADAPT_ERR_WEAK || slow) focus.push(id);
+  }
+  focus.sort((a, b) => weakness(b) - weakness(a));
+  return { focus: focus.slice(0, ADAPT_FOCUS_N), probes };
+}
+
+function wordCoverage(letter) {
+  if (!_letterWordCount) {
+    _letterWordCount = new Map();
+    for (const w of Words.WORDS) for (const ch of new Set(w)) _letterWordCount.set(ch, (_letterWordCount.get(ch) || 0) + 1);
+  }
+  return _letterWordCount.get(letter) || 0;
+}
+
+// The key (if any) to drill with a burst this line — focus keys words can't cover
+// first, then coverage probes, on their respective cadences.
+function pickBurstKey(focus, probes) {
+  const needsBurst = focus.filter((k) => !/^[a-z]$/.test(k) || wordCoverage(k) < MIN_FOCUS_WORDS);
+  if (needsBurst.length && adaptLineNo % DRILL_EVERY === 0) return needsBurst[burstRotation++ % needsBurst.length];
+  if (probes.length && adaptLineNo % PROBE_EVERY === 0) return probes[probeRotation++ % probes.length];
+  return null;
+}
+
+// A short (4–7 token) spaced drill of one key, interleaved with companions so it
+// isn't massed.
+function burstTokens(keyId) {
+  const pool = activePool();
+  if (/^[a-z]$/.test(keyId)) {
+    const sampler = makeSampler(pool.letters, null, keyId);
+    return [...letterCluster(sampler, pool.letters, false), spaceToken(),
+      ...letterCluster(sampler, pool.letters, false)];
+  }
+  const cat = pool.digits.includes(keyId) ? pool.digits : pool.symbols;
+  const companions = cat.filter((k) => k !== keyId && Stats.keyStat(k).attempts > 0).slice(0, 4);
+  const sampler = makeSampler([keyId, ...companions], null, keyId);
+  const out = [];
+  for (let i = 0; i < 3; i++) { if (i) out.push(spaceToken()); out.push(charToken(sampler.pick(null))); }
+  return out;
+}
+
+function spliceAtSpace(tokens, burst) {
+  let best = -1; const mid = tokens.length / 2;
+  for (let i = 0; i < tokens.length; i++) {
+    if (tokens[i].type === 'space' && (best < 0 || Math.abs(i - mid) < Math.abs(best - mid))) best = i;
+  }
+  if (best < 0) { tokens.push(spaceToken(), ...burst); return; }
+  tokens.splice(best + 1, 0, ...burst, spaceToken());
+}
+
+function adaptiveLine() {
+  adaptLineNo += 1;
+  const { focus, probes } = adaptiveFocus();
+  const burstKey = pickBurstKey(focus, probes);
+
+  // Real prose only when no burst is pending (bursts belong inside word lines).
+  if (!burstKey && pseudoRandom() < ADAPT_SENTENCE_P) {
+    const s = sentenceLine(false);
+    if (s) return s;
+  }
+  const letterFocus = new Set(focus.filter((k) => /^[a-z]$/.test(k)));
+  const targetChars = burstKey ? WORD_LINE_TARGET_CHARS - BURST_TRIM : WORD_LINE_TARGET_CHARS;
+  const tokens = wordLine(targetChars, letterFocus.size ? letterFocus : null);
+  if (burstKey) spliceAtSpace(tokens, burstTokens(burstKey));
+  return tokens;
+}
+
 // Build one practice line (~12 slots) from the active pool.
 export function generateLine() {
   const lc = Stats.getSettings().levelChoice;
+
+  if (lc === 'adaptive') return adaptiveLine();
 
   // Explicit fluency modes (manual level select): the user chose Words/Sentences,
   // so ALWAYS render real material using the whole alphabet — never fall back to
@@ -597,14 +708,15 @@ export function generateLine() {
     ? Words.eligibleWords(masteredLetterSet()).filter((w) => w.length <= MAX_WORD_LEN_MIXED)
     : null;
   const wordsForLetters = useWords && shortWords.length >= MIN_ELIGIBLE_WORDS;
-  const shortWeakest = wordsForLetters ? weakestOf(masteredLetterSet()) : null;
+  const sw = wordsForLetters ? weakestOf(masteredLetterSet()) : null;
+  const shortWeakSet = sw ? new Set([sw]) : null;
 
   const order = interleaveSlots(counts);
   const tokens = [];
   for (const cat of order) {
     if (cat === 'letters') {
       tokens.push(...(wordsForLetters
-        ? wordTokens(pickWord(shortWords, shortWeakest), pool.caps)
+        ? wordTokens(pickWord(shortWords, shortWeakSet), pool.caps)
         : letterCluster(letterSampler, pool.letters, pool.caps)));
     }
     else if (cat === 'digits') tokens.push(charToken(digitSampler.pick(null)));
@@ -661,6 +773,13 @@ export function startTracking() {
   recentWords = new Map();
   lastWord = null;
   recentSentences = [];
+  adaptLineNo = 0; burstRotation = 0; probeRotation = 0;
+  // Per-key snapshot so the adaptive summary can report which keys improved.
+  sessionKeySnapshot = {};
+  for (const id of Object.keys(Stats.getState().keys)) {
+    const r = Stats.recentStats(id);
+    if (r.attempts) sessionKeySnapshot[id] = { attempts: Stats.keyStat(id).attempts, errRate: r.errRate, avgLat: r.avgLat };
+  }
 }
 
 function resetPace() {
@@ -672,35 +791,41 @@ function resetPace() {
 // event list the UI turns into notifications: {type:'mastered'|'levelUp'|'newTarget', ...}.
 export function checkProgress() {
   const events = [];
-  const st = Stats.getSettings();
-  const fluency = FLUENCY_MODES.has(st.levelChoice);
+  const lc = Stats.getSettings().levelChoice;
+  const adaptive = lc === 'adaptive';
 
-  if (!fluency) {
-    // Any key whose gate now passes but isn't yet flagged has just graduated.
+  // Mastery marking runs in every non-fluency mode (incl. adaptive) — a key that
+  // crosses its gate still earns a "mastered" toast.
+  if (!FLUENCY_MODES.has(lc)) {
     for (const k of introductionOrder()) {
       if (!Stats.isMasteredFlag(k) && isMastered(k)) {
         Stats.markMastered(k);
         events.push({ type: 'mastered', keyId: k });
       }
     }
-    if (st.levelChoice === 'auto') {
-      const label = maybeAdvanceStage();
-      if (label) events.push({ type: 'levelUp', label, nextLabel: STAGES[Stats.getSettings().stage]?.label });
-    }
-    const target = targetKey();
-    if (target && target !== lastAnnouncedTarget) {
-      events.push({ type: 'newTarget', keyId: target });
-      lastAnnouncedTarget = target;
-      resetPace();
+    // Curriculum progression (targets / level-ups) is Beginner-course only.
+    if (!adaptive) {
+      if (lc === 'auto') {
+        const label = maybeAdvanceStage();
+        if (label) events.push({ type: 'levelUp', label, nextLabel: STAGES[Stats.getSettings().stage]?.label });
+      }
+      const target = targetKey();
+      if (target && target !== lastAnnouncedTarget) {
+        events.push({ type: 'newTarget', keyId: target });
+        lastAnnouncedTarget = target;
+        resetPace();
+      }
     }
   }
 
-  // Material-level promotion (any mode): clusters → words → sentences.
-  const mat = materialLevel();
-  if (mat !== lastMaterial) {
-    const rank = { clusters: 0, words: 1, sentences: 2 };
-    if (lastMaterial !== null && rank[mat] > rank[lastMaterial]) events.push({ type: 'material', level: mat });
-    lastMaterial = mat;
+  // Material-level promotion (auto/levels only — not adaptive, which has no phases).
+  if (!adaptive) {
+    const mat = materialLevel();
+    if (mat !== lastMaterial) {
+      const rank = { clusters: 0, words: 1, sentences: 2 };
+      if (lastMaterial !== null && rank[mat] > rank[lastMaterial]) events.push({ type: 'material', level: mat });
+      lastMaterial = mat;
+    }
   }
   return events;
 }
@@ -777,8 +902,28 @@ export function masteryProgress() {
   return { mastered: order.filter((k) => isMastered(k)).length, total: order.length };
 }
 
+// Keys that measurably improved this session (for the adaptive summary). Compares
+// each key's recent-window error/latency now vs. the snapshot taken at session start.
+export function sessionKeyDeltas(minReps = 6) {
+  if (!sessionKeySnapshot) return [];
+  const out = [];
+  for (const [id, snap] of Object.entries(sessionKeySnapshot)) {
+    if (Stats.keyStat(id).attempts - snap.attempts < minReps) continue;
+    const r = Stats.recentStats(id);
+    const errDelta = snap.errRate - r.errRate;                   // + = fewer errors now
+    const latDelta = snap.avgLat - r.avgLat;                     // + = faster now (ms)
+    const score = errDelta * 3 + Math.max(-1, Math.min(1, latDelta / 300));
+    if (score > 0.15) out.push({ keyId: id, errDelta, latDelta, score });
+  }
+  return out.sort((a, b) => b.score - a.score).slice(0, 3);
+}
+
 export function stageLabel() {
   const c = Stats.getSettings().levelChoice;
+  if (c === 'adaptive') {
+    const f = adaptiveFocus().focus;
+    return f.length ? `Adaptive — focus: ${f.join(' ')}` : 'Adaptive — building your profile';
+  }
   if (c === 'words') return 'Words (fluency)';
   if (c === 'sentences') return 'Sentences (fluency)';
   if (c === 'all') return 'All keys';

@@ -114,12 +114,14 @@ export function clearHighlight() {
 
 // Paint per-key mastery (confMap: keyId -> [0,1]) as a bottom-up fill, and ring
 // the key currently being introduced. No re-render — just mutate the existing keys.
-export function updateMastery(confMap, targetKeyId) {
+// `target` may be a single keyId, an array of keyIds (adaptive focus set), or null.
+export function updateMastery(confMap, target) {
   if (!container) return;
+  const targets = target == null ? [] : (Array.isArray(target) ? target : [target]);
   for (const el of container.querySelectorAll('.kb-key')) {
     const c = confMap[el.dataset.key];
     el.style.setProperty('--mastery', c == null ? '0' : c.toFixed(3));
-    el.classList.toggle('kb-target', targetKeyId != null && el.dataset.key === targetKeyId);
+    el.classList.toggle('kb-target', targets.includes(el.dataset.key));
   }
 }
 

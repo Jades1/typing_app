@@ -80,13 +80,24 @@ model). Key pieces in `engine.js`:
   token isn't resolved yet. Cmd/Ctrl combos are exempted so shortcuts (Cmd+R) aren't
   trapped. Outside a session, keys pass through normally (so Tab can still reach the
   controls for accessibility).
-- **Curriculum & levels**: `STAGES` in `engine.js`. `settings.levelChoice` is
-  `'auto' | '<stageIndex>' | 'all' | 'words' | 'sentences'`. A stage (row) is
-  completed only when all its keys are individually mastered (`canAdvanceStage` =
-  `keys.every(isMastered)`); `maybeAdvanceStage()` advances in `'auto'` and fires
-  mid-session via `checkProgress()`. A specific level masters that stage's keys one
-  at a time on top of earlier stages. `'all'`/`'words'`/`'sentences'` are **fluency
-  modes** (`FLUENCY_MODES`): null target, full pool.
+- **Adaptive mode (DEFAULT, research/07)**: `settings.levelChoice === 'adaptive'`.
+  Content-first: full keyboard, no key-introduction order, real words/sentences.
+  `adaptiveFocus()` → `{focus, probes}`: `focus` = ≤`ADAPT_FOCUS_N` keys measuring
+  weak over the recent window (≥`ADAPT_ERR_WEAK` errors or ≥`ADAPT_LAT_WEAK`× your
+  median latency, with ≥`ADAPT_MIN_ATTEMPTS` data); `probes` = under-sampled/stale
+  digits+symbols. `adaptiveLine()` = weak-letter-biased `wordLine()` + `sentenceLine`
+  + `spliceAtSpace(burstTokens(k))` for a focus/probe key words can't cover (digits,
+  symbols, `z`/`q`; `pickBurstKey` cadence). ~90% content, ≤10% drill. Mastery still
+  accrues (display/continuity) but does **not** gate. HUD slot shows focus keys, not
+  ETA. Summary uses `sessionKeyDeltas()` ("Improved this session"). Not in
+  `FLUENCY_MODES` (so `checkProgress` still marks mastery) but in `FULL_POOL_MODES`.
+- **Curriculum & levels (Beginner course)**: `STAGES` in `engine.js`.
+  `settings.levelChoice` ∈ `'adaptive' | 'auto' | '<stageIndex>' | 'all' | 'words' |
+  'sentences'`. A stage (row) is completed only when all its keys are individually
+  mastered (`canAdvanceStage`); `maybeAdvanceStage()` advances in `'auto'` and fires
+  mid-session via `checkProgress()`. `'all'`/`'words'`/`'sentences'` are **fluency
+  modes** (`FLUENCY_MODES`); `FULL_POOL_MODES` adds `'adaptive'` (all = null target,
+  full pool).
 - **Material level** (`materialLevel()` → `clusters | words | sentences`, research/05):
   a *derived* function of mastery state, **nothing new persisted**. Once all pool
   letters are mastered, the letters backbone of a line renders **real words** (from
@@ -113,15 +124,16 @@ model). Key pieces in `engine.js`:
 
 ## Data model (`localStorage`)
 
-Key `typing_app_v1`; `version: 2` (v1 blobs are migrated in `stats.js load()` —
-`recent[]` added, `mastered` seeded from lifetime stats so returning users aren't
-reset). Per-key `recent` is a ring buffer (max `RECENT_WINDOW`): `>0` = correct
-latency ms, `0` = correct w/o latency (specials), `-1` = error.
+Key `typing_app_v1`; `version: 3`. Migrations in `stats.js migrate()`: v1→v2 adds
+`recent[]` + seeds `mastered` from lifetime stats; v2→v3 makes `'adaptive'` the
+default (flips only barely-started `'auto'` users; adds `adaptiveNoticeShown`).
+Per-key `recent` is a ring buffer (max `RECENT_WINDOW`): `>0` = correct latency ms,
+`0` = correct w/o latency (specials), `-1` = error.
 
-`{ version:2, seenCounter,
+`{ version:3, seenCounter,
    keys:{ id:{attempts,errors,sumLatencyMs,samples,lastSeen, recent:[…], mastered, masteredAt} },
    sessions:[{date,ts,durationMs,chars,correct,attempts,errors,wpm,accuracy}],
-   settings:{ sessionMinutes, stage, levelChoice, strictMode, theme, dailyGoalMinutes, showFingers } }`
+   settings:{ sessionMinutes, stage, levelChoice, strictMode, theme, dailyGoalMinutes, showFingers, adaptiveNoticeShown } }`
 
 ## Testing / running
 

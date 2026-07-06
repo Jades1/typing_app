@@ -20,18 +20,19 @@ export const MASTERY_MAX_ERR = 0.05;       // recent error-rate ceiling
 const SPECIAL_IDS = new Set(SPECIAL_KEYS.map((s) => s.id));
 
 const DEFAULT_STATE = () => ({
-  version: 2,
+  version: 3,
   seenCounter: 0,           // monotonic keystroke counter, drives recency
   keys: {},                 // keyId -> { attempts, errors, sumLatencyMs, samples, lastSeen, recent, mastered, masteredAt }
   sessions: [],             // { date:'YYYY-MM-DD', ts, durationMs, chars, correct, wpm, accuracy }
   settings: {
     sessionMinutes: 5,
-    stage: 0,               // curriculum stage reached in auto mode (see engine STAGES)
-    levelChoice: 'auto',    // 'auto' | '<stageIndex>' | 'all' — what to practice
+    stage: 0,               // curriculum stage reached in auto/Beginner mode (see engine STAGES)
+    levelChoice: 'adaptive', // 'adaptive' (default) | 'auto' (Beginner course) | '<stageIndex>' | 'words' | 'sentences' | 'all'
     strictMode: true,       // must fix errors before advancing
     theme: 'auto',
     dailyGoalMinutes: 5,
     showFingers: true,      // finger-guidance scaffolding (hint text); toggled on the home screen
+    adaptiveNoticeShown: false, // one-time "Adaptive mode is new" notice for grandfathered users
   },
 });
 
@@ -58,19 +59,32 @@ export function load() {
 // aren't dumped back to drilling 'a'. Seeding is deliberately lenient — it uses
 // lifetime averages, which is fine as a one-time grandfather.
 function migrate() {
-  if (state.version === 2 && Object.values(state.keys).every((k) => Array.isArray(k.recent))) return;
-  for (const id of Object.keys(state.keys)) {
-    const k = state.keys[id];
-    if (!Array.isArray(k.recent)) k.recent = [];
-    if (typeof k.mastered !== 'boolean') {
-      const err = k.attempts ? k.errors / k.attempts : 1;
-      const avgLat = k.samples ? k.sumLatencyMs / k.samples : Infinity;
-      const speedOk = SPECIAL_IDS.has(id) || avgLat <= TARGET_MS;
-      k.mastered = k.attempts >= MASTERY_MIN_ATTEMPTS && err <= MASTERY_MAX_ERR && speedOk;
-      k.masteredAt = k.mastered ? state.seenCounter : 0;
+  // v1 → v2: add recent-window ring buffers + seed mastery from lifetime stats so
+  // returning users aren't dumped back to drilling 'a' (lenient one-time grandfather).
+  if (state.version < 2 || Object.values(state.keys).some((k) => !Array.isArray(k.recent))) {
+    for (const id of Object.keys(state.keys)) {
+      const k = state.keys[id];
+      if (!Array.isArray(k.recent)) k.recent = [];
+      if (typeof k.mastered !== 'boolean') {
+        const err = k.attempts ? k.errors / k.attempts : 1;
+        const avgLat = k.samples ? k.sumLatencyMs / k.samples : Infinity;
+        const speedOk = SPECIAL_IDS.has(id) || avgLat <= TARGET_MS;
+        k.mastered = k.attempts >= MASTERY_MIN_ATTEMPTS && err <= MASTERY_MAX_ERR && speedOk;
+        k.masteredAt = k.mastered ? state.seenCounter : 0;
+      }
     }
+    if (state.version < 2) state.version = 2;
   }
-  state.version = 2;
+  // v2 → v3: content-first adaptive becomes the default. Only flip barely-started
+  // users still on the old 'auto' default; everyone else keeps their mode (and gets
+  // a one-time discovery notice, shown by app.js).
+  if (state.version < 3) {
+    if (state.settings.levelChoice === 'auto' && state.seenCounter < 200) {
+      state.settings.levelChoice = 'adaptive';
+    }
+    if (state.settings.adaptiveNoticeShown === undefined) state.settings.adaptiveNoticeShown = false;
+    state.version = 3;
+  }
   save();
 }
 

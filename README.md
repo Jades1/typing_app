@@ -1,21 +1,30 @@
 # Adaptive Typing Trainer
 
-A browser-based typing trainer (in the spirit of TypingClub / keybr) that
-introduces keys **one at a time** and drills each to automaticity before moving
-on — interleaving the key you're learning only with keys you've already mastered,
-while showing the correct finger for every key, including special keys like Tab,
-Shift, Command, Control, and Option.
+A browser-based typing trainer (in the spirit of keybr / monkeytype) that, by
+default, has you **type real words and sentences** while it finds the handful of
+keys you're actually shaky on and drills *those* — without wasting your time on the
+keys you already own. A separate **Beginner course** teaches key locations one at a
+time for people starting from scratch. It shows the correct finger for every key,
+including special keys like Tab, Shift, Command, Control, and Option.
 
 No build step, no dependencies. Open `index.html` in a browser and start typing.
 
 ## Features
 
-- **One key at a time, to mastery** — the trainer introduces a single new "target"
-  key and drills it (interleaved with keys you've already mastered) until it clears
-  a per-key **speed *and* accuracy** gate — roughly **35 WPM (≤343 ms/keystroke)
-  at ≥95% accuracy**, measured over a recent window. Only then does it graduate and
-  the next key is introduced. Interleaving is the *reward* for mastery, not the way
-  keys are first learned.
+- **Adaptive mode (default)** — type real words and sentences from the start; the
+  app watches your recent per-key error rate and speed, identifies the **≤3 keys
+  you're actually weak on**, and remediates them surgically: it biases word choice
+  toward words containing your weak *letters*, and splices short **targeted bursts**
+  for keys real words can't cover (numbers, symbols, and rare letters like `z`/`q`).
+  ~90% real content, ≤10% drill; recovered keys drop out of focus automatically, so
+  it never over-drills what you've already got. The HUD shows your current focus
+  keys; the end-of-session summary reports which keys **improved**.
+- **Beginner course (optional)** — for people who don't yet know key locations: the
+  trainer introduces a single new "target" key and drills it (interleaved with keys
+  you've already mastered) until it clears a per-key **speed *and* accuracy** gate —
+  roughly **35 WPM (≤343 ms/keystroke) at ≥95% accuracy** — then graduates it and
+  introduces the next. Interleaving is the *reward* for mastery, not the way keys
+  are first learned.
 - **Speed-gated progression** — a level (a whole keyboard row) is completed only
   when every key it introduced is individually mastered. **Letters** need fluency
   (≈35 WPM at ≥95%); **numbers and symbols** use a faster, accuracy-focused gate
@@ -56,13 +65,12 @@ No build step, no dependencies. Open `index.html` in a browser and start typing.
 - **Keys-mastered list** — a side-panel card lists every key you've mastered
   (green chips, curriculum order) with a running count — the positive counterpart
   to "keys to focus on", so progress stays visible.
-- **Selectable levels** — a **Level** picker lets you jump straight to what you
-  want to drill: *Adaptive (auto-level)* introduces keys one at a time through a
-  curriculum (home → top → bottom → capitals → numbers → symbols → special keys);
-  pick a specific level (e.g. **Numbers**) to master that group's keys one at a
-  time on top of earlier ones; **Words** or **Sentences** to jump to the fluency
-  phase; or **All keys** for a full weakness-weighted mix (no single target — the
-  classic mixed-review mode).
+- **Selectable levels** — a **Level** picker lets you choose: **Adaptive**
+  (default, above); the **Beginner course** — the *Guided course (auto-level)* that
+  walks the curriculum (home → top → bottom → capitals → numbers → symbols → special
+  keys), or a specific level (e.g. **Numbers**) to master that group's keys on top
+  of earlier ones; or **Free practice** — **Words**, **Sentences**, or **All keys**
+  (a full weakness-weighted mix).
 - **Streaks & stats** — daily practice streak, minutes-today vs. goal, a live
   "keys to focus on" list, and a recent-WPM bar chart.
 - **Strict vs. forgiving mode** — require correcting each error before advancing,

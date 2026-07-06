@@ -22,6 +22,7 @@ function cacheEls() {
   els.wpm = $('#hud-wpm');
   els.acc = $('#hud-acc');
   els.next = $('#hud-next');
+  els.nextLabel = $('#hud-next-label');
   els.notice = $('#notice');
   els.fingers = $('#fingers-toggle');
   els.start = $('#start-btn');
@@ -95,7 +96,8 @@ function nextLine() {
 }
 
 function refreshKeyboardMastery() {
-  Keyboard.updateMastery(Engine.confidenceMap(), Engine.targetKey());
+  const adaptive = Stats.getSettings().levelChoice === 'adaptive';
+  Keyboard.updateMastery(Engine.confidenceMap(), adaptive ? Engine.adaptiveFocus().focus : Engine.targetKey());
 }
 
 // Turn engine progression events into on-screen notifications. A "mastered" event
@@ -217,7 +219,15 @@ function updateHud(live) {
   els.time.textContent = fmtTime(live.remainingMs);
   els.wpm.textContent = Math.round(live.wpm);
   els.acc.textContent = `${Math.round(live.accuracy * 100)}%`;
-  els.next.textContent = formatEta(Engine.nextKeyEta());
+  // Adaptive has no "next key" — show the current weak-key focus instead.
+  if (Stats.getSettings().levelChoice === 'adaptive') {
+    const f = Engine.adaptiveFocus().focus;
+    els.nextLabel.textContent = 'Focus';
+    els.next.textContent = f.length ? f.map(labelForKey).join(' ') : '—';
+  } else {
+    els.nextLabel.textContent = 'Next key';
+    els.next.textContent = formatEta(Engine.nextKeyEta());
+  }
 }
 
 // Deliberately coarse — this is an order-of-magnitude estimate, not a countdown.
@@ -242,6 +252,7 @@ function deltaChip(value, digits = 0, suffix = '') {
 
 function showSummary(res) {
   endUiReset();
+  const adaptive = Stats.getSettings().levelChoice === 'adaptive';
   const cmp = Stats.sessionComparison();
   const prog = Engine.masteryProgress();
   const mastered = Engine.keysMasteredThisSession();
@@ -257,17 +268,41 @@ function showSummary(res) {
       WPM ${deltaChip(cmp.wpmDelta)} &nbsp; accuracy ${deltaChip(cmp.accDelta * 100, 0, '%')} ${best}</p>`;
   }
 
-  // 2. progress this session + overall
-  let progressLine;
-  if (mastered.length) {
-    const chips = mastered.map((k) => `<span class="chip good">${escapeHtml(labelForKey(k))}</span>`).join(' ');
-    progressLine = `<p class="progress"><strong>Mastered this session:</strong> ${chips}</p>`;
-  } else if (target) {
-    progressLine = `<p class="progress">No new keys yet — keep drilling <strong>${escapeHtml(labelForKey(target))}</strong> to unlock the next.</p>`;
+  // 2. progress this session. Adaptive reports keys that IMPROVED (no curriculum);
+  // the curriculum modes report keys mastered / the next target.
+  let progressLine; let progressCount = '';
+  if (adaptive) {
+    const deltas = Engine.sessionKeyDeltas();
+    if (mastered.length) {
+      const chips = mastered.map((k) => `<span class="chip good">${escapeHtml(labelForKey(k))}</span>`).join(' ');
+      progressLine = `<p class="progress"><strong>Mastered this session:</strong> ${chips}</p>`;
+    } else if (deltas.length) {
+      const chips = deltas.map((d) => {
+        const bits = [];
+        if (d.latDelta > 15) bits.push(`▲${Math.round(d.latDelta)}ms`);
+        if (d.errDelta > 0.02) bits.push(`▲${Math.round(d.errDelta * 100)}% acc`);
+        return `<span class="chip good">${escapeHtml(labelForKey(d.keyId))} ${bits.join(' · ')}</span>`;
+      }).join(' ');
+      progressLine = `<p class="progress"><strong>Improved this session:</strong> ${chips}</p>`;
+    } else {
+      progressLine = `<p class="progress">Even performance — your focus keys will rotate as data comes in.</p>`;
+    }
   } else {
-    progressLine = `<p class="progress">Every key in this mode is mastered — nice work.</p>`;
+    if (mastered.length) {
+      const chips = mastered.map((k) => `<span class="chip good">${escapeHtml(labelForKey(k))}</span>`).join(' ');
+      progressLine = `<p class="progress"><strong>Mastered this session:</strong> ${chips}</p>`;
+    } else if (target) {
+      progressLine = `<p class="progress">No new keys yet — keep drilling <strong>${escapeHtml(labelForKey(target))}</strong> to unlock the next.</p>`;
+    } else {
+      progressLine = `<p class="progress">Every key in this mode is mastered — nice work.</p>`;
+    }
+    progressCount = `<p class="progress-count">${prog.mastered} / ${prog.total} keys mastered</p>`;
   }
-  const progressCount = `<p class="progress-count">${prog.mastered} / ${prog.total} keys mastered</p>`;
+
+  // Beginner escape hatch: if adaptive is clearly too hard, point to the course.
+  const beginnerHint = (adaptive && res.accuracy < 0.75 && res.wpm < 12)
+    ? `<p class="progress-count">Finding this hard? The <strong>Beginner course</strong> (Level menu) teaches key locations one at a time.</p>`
+    : '';
 
   // 3. weak spots with concrete numbers
   const weak = res.weakest.length
@@ -291,6 +326,7 @@ function showSummary(res) {
     ${progressLine}
     ${progressCount}
     <p class="weak-line"><strong>Work on:</strong> ${weak}</p>
+    ${beginnerHint}
     <p class="encourage">${encouragement(cmp, mastered.length)}</p>`;
   els.summary.classList.add('open');
 }
@@ -390,6 +426,12 @@ function init() {
   refreshKeyboardMastery();
   refreshStatsPanel();
 
+  // One-time discovery notice for grandfathered users still on a curriculum mode.
+  if (st.levelChoice !== 'adaptive' && !st.adaptiveNoticeShown) {
+    notify('New: Adaptive mode — type real words while the app finds and drills your weak keys. Pick it from the Level menu.', { duration: 8000 });
+    Stats.setSetting('adaptiveNoticeShown', true);
+  }
+
   els.start.addEventListener('click', () => {
     if (session && session.isRunning()) stopSession(); else startSession();
   });
@@ -402,7 +444,7 @@ function init() {
     if (confirm('Reset all progress and stats? This cannot be undone.')) {
       Stats.resetAll();
       Stats.load();
-      els.level.value = 'auto'; els.strict.checked = true;
+      els.level.value = 'adaptive'; els.strict.checked = true;
       tokens = Engine.generateLine(); renderLine(); Keyboard.clearHighlight();
       refreshKeyboardMastery();
       refreshStatsPanel();

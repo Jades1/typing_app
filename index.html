@@ -21,17 +21,22 @@
       </label>
       <label class="ctl">Level
         <select id="level-select">
-          <option value="auto">Adaptive (auto-level)</option>
-          <option value="0">1 · Home row</option>
-          <option value="1">2 · Top row</option>
-          <option value="2">3 · Bottom row</option>
-          <option value="3">4 · Capitals</option>
-          <option value="4">5 · Numbers</option>
-          <option value="5">6 · Symbols</option>
-          <option value="6">7 · Special keys</option>
-          <option value="words">8 · Words (fluency)</option>
-          <option value="sentences">9 · Sentences (fluency)</option>
-          <option value="all">All keys (mixed)</option>
+          <option value="adaptive">Adaptive (recommended)</option>
+          <optgroup label="Beginner course — learn key locations">
+            <option value="auto">Guided course (auto-level)</option>
+            <option value="0">1 · Home row</option>
+            <option value="1">2 · Top row</option>
+            <option value="2">3 · Bottom row</option>
+            <option value="3">4 · Capitals</option>
+            <option value="4">5 · Numbers</option>
+            <option value="5">6 · Symbols</option>
+            <option value="6">7 · Special keys</option>
+          </optgroup>
+          <optgroup label="Free practice">
+            <option value="words">Words (fluency)</option>
+            <option value="sentences">Sentences (fluency)</option>
+            <option value="all">All keys (mixed)</option>
+          </optgroup>
         </select>
       </label>
       <label class="ctl toggle"><input type="checkbox" id="strict-toggle" /> Strict</label>
@@ -56,7 +61,7 @@
         <span class="hud-item"><label>Time</label><b id="hud-time">0:00</b></span>
         <span class="hud-item"><label>WPM</label><b id="hud-wpm">0</b></span>
         <span class="hud-item"><label>Accuracy</label><b id="hud-acc">100%</b></span>
-        <span class="hud-item"><label>Next key</label><b id="hud-next">—</b></span>
+        <span class="hud-item"><label id="hud-next-label">Next key</label><b id="hud-next">—</b></span>
       </div>
     </section>
 
