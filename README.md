@@ -19,11 +19,11 @@ No build step, no dependencies. Open `index.html` in a browser and start typing.
   ~90% real content, ≤10% drill; recovered keys drop out of focus automatically, so
   it never over-drills what you've already got. The HUD shows your current focus
   keys; the end-of-session summary reports which keys **improved**.
-- **Deliberate rounds for Numbers, Symbols, and Special keys** — each of those levels
-  teaches its keys a few at a time, heavily over-exposed **woven inside real words**
-  (Numbers `Room 747 has 747 child 74` ~1:2; Symbols `Song. idea' high' Must.`;
-  Special keys `and [Ctrl] these [Alt] Never [Tab]` ~1:4, lighter since they disrupt
-  flow). As soon as you type a key *accurately* a few times the next slides in — so
+- **Deliberate rounds for Capitals, Numbers, Symbols, and Special keys** — each of
+  those levels teaches its keys a few at a time, heavily over-exposed **woven inside
+  real words** (Capitals Title-case `Here Hill Show So About`; Numbers `Room 747 has
+  747 child 74` ~1:2; Symbols `Song. idea' high' Must.`; Special keys `and [Ctrl]
+  these [Alt] Never [Tab]` ~1:4, lighter since they disrupt flow). As soon as you type a key *accurately* a few times the next slides in — so
   you work through them fast — and earlier ones keep appearing so their speed builds.
   Adaptive mode keeps only a **light sprinkle** of numbers so it stays word-focused.
 - **Push mode** — a home-screen toggle for breaking speed plateaus: a **pace marker**

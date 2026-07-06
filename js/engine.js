@@ -62,8 +62,9 @@ const RAMP_DIGITS = ['4', '7', '5', '6', '3', '8', '2', '9', '1', '0'];  // by f
 const RAMP_SYMBOLS = [',', '.', "'", '-', '?', '!', ';', ':', '"', '/',
   '(', ')', '_', '=', '+', '@', '#', '$', '%', '&', '*', '[', ']', '^'];
 const RAMP_SPECIALS = ['Tab', 'Control', 'Alt', 'Meta'];   // Shift trained via caps
+const RAMP_CAPS = 'TASHWIOBMFCLDPNEGRUVKYJQXZ'.split('');  // uppercase by word-initial frequency
 const RAMP_MIN_LETTERS_MASTERED = 18;   // letters solid before the ramp starts
-const RAMP_ACTIVE_N = { digits: 3, symbols: 3, specials: 3 };  // more at once → more interleaving / work through faster
+const RAMP_ACTIVE_N = { digits: 3, symbols: 3, specials: 3, caps: 4 };  // more at once → interleaving / work through faster
 const RAMP_REST_EVERY = 8;      // every 8th line is a normal adaptive line (mostly number lines)
 const RAMP_INJECT_P = 0.95;     // inject a ramp chunk after nearly every word
 const RAMP_CHUNK_MIN = 2, RAMP_CHUNK_MAX = 3;
@@ -609,6 +610,7 @@ function rampReady(k) {
 // = the ones being introduced now; `introduced` = the accumulating pool (all appear,
 // woven in words). Null in every other mode (Adaptive gets only a light sprinkle).
 const RAMP_LEVELS = {
+  3: { track: 'caps', order: RAMP_CAPS, label: 'Capitals' },
   4: { track: 'digits', order: RAMP_DIGITS, label: 'Numbers' },
   5: { track: 'symbols', order: RAMP_SYMBOLS, label: 'Symbols' },
   6: { track: 'specials', order: RAMP_SPECIALS, label: 'Special keys' },
@@ -753,6 +755,26 @@ function sprinkleDigits(tokens) {
   spliceAtSpace(tokens, chunk);
 }
 
+// Capitals round: heavily Title-Case real words, capitalizing initials whose
+// uppercase is in the introduced set (progressive) — ~1 capital per word.
+function capsWordLine(ramp) {
+  const allowed = new Set(activePool().letters);
+  const eligible = Words.eligibleWords(allowed);
+  const introInitials = new Set(ramp.introduced.map((c) => c.toLowerCase()));
+  const capWords = eligible.filter((w) => introInitials.has(w[0]));
+  const pool = capWords.length >= 8 ? capWords : eligible;   // fallback if too few
+  const tokens = [];
+  let chars = 0; let n = 0;
+  while (chars < WORD_LINE_TARGET_CHARS && n < WORD_LINE_MAX_WORDS) {
+    const w = pickWord(pool, null);
+    const glyphs = introInitials.has(w[0]) ? [w[0].toUpperCase(), ...w.slice(1)] : [...w];
+    tokens.push(...glyphs.map(charToken), spaceToken());
+    chars += w.length + 1; n += 1;
+  }
+  while (tokens.length && tokens[tokens.length - 1].type === 'space') tokens.pop();
+  return tokens;
+}
+
 function adaptiveLine() {
   adaptLineNo += 1;
   const { focus, probes } = adaptiveFocus();
@@ -777,10 +799,10 @@ export function generateLine() {
 
   if (lc === 'adaptive') return adaptiveLine();
 
-  // Numbers ('4') / Symbols ('5') / Special keys ('6') → deliberate rounds woven in words.
+  // Capitals ('3') / Numbers ('4') / Symbols ('5') / Special keys ('6') → deliberate rounds.
   if (RAMP_LEVELS[lc]) {
     const nr = acquisitionRamp();
-    if (nr) return rampWordLine(nr, null);
+    if (nr) return nr.track === 'caps' ? capsWordLine(nr) : rampWordLine(nr, null);
   }
 
   // Explicit fluency modes (manual level select): the user chose Words/Sentences,
