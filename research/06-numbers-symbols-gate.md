@@ -19,9 +19,10 @@ speed gate as letters before graduating?
 Holding numbers/symbols to the letter speed gate over-drills low-frequency keys and
 stalls the curriculum. **Category-aware gate** (`gateFor()` in `engine.js`):
 - **Letters:** unchanged — ≥20 attempts, ≤343 ms, ≥95%.
-- **Numbers & symbols:** ≥8 attempts, ≥95%, **speed waived entirely** — mastery is
-  pure location/accuracy, so a new key integrates fast and the next comes in quickly.
-  (A mastered-but-slow key still gets speed practice via maintenance remediation.)
+- **Numbers & symbols:** ≥12 attempts, **≤600 ms** (lenient), ≥95% — proves location
+  recall, graduates faster than letters. (The *Numbers round* advances its ramp even
+  faster via a **separate accuracy-only check** — `rampReady`, no speed — so the next
+  number comes in quickly; this global mastery gate is unchanged.)
 - **Specials:** speed waived (unchanged).
 → Decision 06 (**Built**).
 

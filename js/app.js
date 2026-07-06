@@ -107,8 +107,12 @@ function nextLine() {
 }
 
 function refreshKeyboardMastery() {
-  const adaptive = Stats.getSettings().levelChoice === 'adaptive';
-  Keyboard.updateMastery(Engine.confidenceMap(), adaptive ? Engine.adaptiveFocus().focus : Engine.targetKey());
+  const lc = Stats.getSettings().levelChoice;
+  let ring;
+  if (lc === 'adaptive') ring = Engine.adaptiveFocus().focus;
+  else if (lc === '4' && Engine.acquisitionRamp()) ring = Engine.acquisitionRamp().active;
+  else ring = Engine.targetKey();
+  Keyboard.updateMastery(Engine.confidenceMap(), ring);
 }
 
 // Turn engine progression events into on-screen notifications. A "mastered" event
@@ -315,13 +319,15 @@ function updateHud(live) {
   els.time.textContent = fmtTime(live.remainingMs);
   els.wpm.textContent = Math.round(live.wpm);
   els.acc.textContent = `${Math.round(live.accuracy * 100)}%`;
-  // Adaptive has no "next key" — show the keys being learned / focused instead.
-  if (Stats.getSettings().levelChoice === 'adaptive') {
-    const r = Engine.acquisitionRamp();
-    const f = Engine.adaptiveFocus(r).focus;
-    const show = r ? [...r.active, ...f].slice(0, 3) : f;
-    els.nextLabel.textContent = r ? 'Learning' : 'Focus';
-    els.next.textContent = show.length ? show.map(labelForKey).join(' ') : '—';
+  // Adaptive shows weak-key focus; the Numbers round shows the digits being learned.
+  const lc = Stats.getSettings().levelChoice;
+  if (lc === 'adaptive') {
+    const f = Engine.adaptiveFocus().focus;
+    els.nextLabel.textContent = 'Focus';
+    els.next.textContent = f.length ? f.map(labelForKey).join(' ') : '—';
+  } else if (lc === '4' && Engine.acquisitionRamp()) {
+    els.nextLabel.textContent = 'Learning';
+    els.next.textContent = Engine.acquisitionRamp().active.map(labelForKey).join(' ');
   } else {
     els.nextLabel.textContent = 'Next key';
     els.next.textContent = formatEta(Engine.nextKeyEta());

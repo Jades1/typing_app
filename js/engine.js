@@ -51,6 +51,7 @@ const DRILL_EVERY = 2;            // focus-key burst at most every N lines
 const PROBE_EVERY = 3;            // coverage probe burst at most every N lines
 const ADAPT_SENTENCE_P = 0.35;    // sentence-line probability (when no burst pending)
 const BURST_TRIM = 8;             // chars trimmed from the word backbone when a burst is injected
+const ADAPT_SPRINKLE_P = 0.5;     // adaptive word line: chance to sprinkle in a number (light)
 
 // --- deliberate non-letter acquisition ramp (adaptive mode, research/09) ------
 // Numbers/symbols/specials are hard AND rare in text, so they need OVER-practice
@@ -80,10 +81,10 @@ function gateFor(keyId) {
     return { minAttempts: Stats.MASTERY_MIN_ATTEMPTS, maxErr: Stats.MASTERY_MAX_ERR, speedMs: null, minLatSamples: 0 };
   }
   if (/^[0-9]$/.test(keyId) || isSymbolKey(keyId)) {
-    // Numbers/symbols graduate on LOCATION (accuracy), not speed — so a new key
-    // integrates fast and the next one comes in quickly (research/06). Speed then
-    // builds naturally: a mastered-but-slow key still gets maintenance remediation.
-    return { minAttempts: 8, maxErr: Stats.MASTERY_MAX_ERR, speedMs: null, minLatSamples: 0 };
+    // Lenient speed (location matters more than fluency, research/06) but still
+    // speed-gated for real mastery. The Numbers round advances the *ramp* fast via a
+    // separate accuracy-only check (rampReady) — this global gate is unchanged.
+    return { minAttempts: 12, maxErr: Stats.MASTERY_MAX_ERR, speedMs: 600, minLatSamples: 4 };
   }
   return { minAttempts: Stats.MASTERY_MIN_ATTEMPTS, maxErr: Stats.MASTERY_MAX_ERR, speedMs: Stats.TARGET_MS, minLatSamples: Stats.MASTERY_MIN_LAT_SAMPLES };
 }
@@ -457,7 +458,7 @@ export function materialLevel() {
 // before mastery); the automatic terminal-fluency path uses only mastered letters.
 function fluencyLetterSet() {
   const lc = Stats.getSettings().levelChoice;
-  if (lc === 'words' || lc === 'sentences' || lc === 'adaptive') return new Set(activePool().letters);
+  if (lc === 'words' || lc === 'sentences' || lc === 'adaptive' || lc === '4') return new Set(activePool().letters);
   return masteredLetterSet();
 }
 
@@ -585,21 +586,24 @@ let lastRampActive = null;       // for the {type:'rampAdvance'} notification
 // so at most RAMP_ACTIVE_N keys are being introduced at once, over-exposed inside
 // words until each masters. Returns null in non-adaptive modes / when all mastered.
 // → { track, active:[…], next:string|null, pending:Set }
+// Fast advancement check for the Numbers round: accuracy/location only (no speed),
+// so the next number comes in quickly. Full speed-based mastery (gateFor) is separate.
+function rampReady(k) {
+  const r = Stats.recentStats(k);
+  return r.attempts >= 8 && r.errRate <= Stats.MASTERY_MAX_ERR;
+}
+
+// The Numbers round — the "5 · Numbers" level (stage index 4). Progressive digit
+// introduction: `active` = the couple being introduced now; `introduced` = the
+// accumulating pool of all introduced digits (all appear, woven in words at ~1:2).
+// Null in every other mode (so Adaptive gets only a light sprinkle, not this).
 export function acquisitionRamp() {
-  if (Stats.getSettings().levelChoice !== 'adaptive') return null;
-  const pool = activePool();
-  if (pool.letters.filter((l) => isMastered(l)).length < RAMP_MIN_LETTERS_MASTERED) return null;
-  for (const [track, order] of [['digits', RAMP_DIGITS], ['symbols', RAMP_SYMBOLS], ['specials', RAMP_SPECIALS]]) {
-    const unmastered = order.filter((k) => !isMastered(k));
-    if (!unmastered.length) continue;
-    return {
-      track,
-      active: unmastered.slice(0, RAMP_ACTIVE_N[track]),
-      next: unmastered[RAMP_ACTIVE_N[track]] ?? null,
-      pending: new Set(unmastered),
-    };
-  }
-  return null;   // all ramp keys mastered → pure maintenance mode
+  if (Stats.getSettings().levelChoice !== '4') return null;
+  const order = RAMP_DIGITS;
+  const notReady = order.filter((k) => !rampReady(k));
+  const active = notReady.length ? notReady.slice(0, RAMP_ACTIVE_N.digits) : order.slice(-RAMP_ACTIVE_N.digits);
+  const introduced = order.filter((k) => rampReady(k) || active.includes(k));
+  return { track: 'digits', active, introduced, next: notReady[RAMP_ACTIVE_N.digits] ?? null, pending: new Set(notReady) };
 }
 
 // { focus: string[] (≤N, weakest first — enough data & measures weak),
@@ -668,21 +672,15 @@ function spliceAtSpace(tokens, burst) {
   tokens.splice(best + 1, 0, ...burst, spaceToken());
 }
 
-// A short chunk (2–3) of the active ramp keys, occasionally an already-mastered
-// same-category companion so it interleaves rather than massing.
+// A short chunk (2–3) drawn from the accumulating introduced-digit pool (weighted
+// by weakness, so the newest/weakest appear most) — earlier numbers keep getting
+// practiced as new ones come in.
 function rampChunkTokens(ramp) {
-  const pool = activePool();
-  const cat = ramp.track === 'digits' ? pool.digits : pool.symbols;
-  const companions = cat.filter((k) => !ramp.pending.has(k) && Stats.keyStat(k).attempts > 0);
-  const sampler = makeSampler(ramp.active, null, null);
+  const pool = ramp.introduced && ramp.introduced.length ? ramp.introduced : ramp.active;
+  const sampler = makeSampler(pool, null, null);
   const len = RAMP_CHUNK_MIN + Math.floor(pseudoRandom() * (RAMP_CHUNK_MAX - RAMP_CHUNK_MIN + 1));
   const out = [];
-  for (let i = 0; i < len; i++) {
-    const useCompanion = companions.length && pseudoRandom() < RAMP_COMPANION_P;
-    out.push(charToken(useCompanion
-      ? companions[Math.floor(pseudoRandom() * companions.length)]
-      : sampler.pick(null)));
-  }
+  for (let i = 0; i < len; i++) out.push(charToken(sampler.pick(null)));
   return out;
 }
 
@@ -724,26 +722,33 @@ function rampWordLine(ramp, weak) {
   return tokens;
 }
 
+// Light sprinkle: occasionally weave one number into an adaptive word line, so
+// adaptive practice has a few numbers without being number-heavy (that's the
+// Numbers round's job). Weakness-weighted so a shaky digit shows a touch more.
+function sprinkleDigits(tokens) {
+  const digits = activePool().digits;
+  if (!digits.length || pseudoRandom() >= ADAPT_SPRINKLE_P) return;
+  const sampler = makeSampler(digits, null, null);
+  const chunk = [charToken(sampler.pick(null))];
+  if (pseudoRandom() < 0.3) chunk.push(charToken(sampler.pick(null)));   // occasionally two
+  spliceAtSpace(tokens, chunk);
+}
+
 function adaptiveLine() {
   adaptLineNo += 1;
-  const ramp = acquisitionRamp();
-  const { focus, probes } = adaptiveFocus(ramp);
+  const { focus, probes } = adaptiveFocus();
   const letterFocus = new Set(focus.filter((k) => /^[a-z]$/.test(k)));
   const weak = letterFocus.size ? letterFocus : null;
 
-  // Acquisition: most lines over-expose the active ramp keys woven inside words.
-  if (ramp && adaptLineNo % RAMP_REST_EVERY !== 0) return rampWordLine(ramp, weak);
-
-  // Rest lines / no ramp: bursts + sentences + word lines (maintenance behavior).
   const burstKey = pickBurstKey(focus, probes);
-  const sentenceP = ramp ? RAMP_SENTENCE_P : ADAPT_SENTENCE_P;
-  if (!burstKey && pseudoRandom() < sentenceP) {
+  if (!burstKey && pseudoRandom() < ADAPT_SENTENCE_P) {
     const s = sentenceLine(false);
     if (s) return s;
   }
   const targetChars = burstKey ? WORD_LINE_TARGET_CHARS - BURST_TRIM : WORD_LINE_TARGET_CHARS;
   const tokens = wordLine(targetChars, weak);
   if (burstKey) spliceAtSpace(tokens, burstTokens(burstKey));
+  else sprinkleDigits(tokens);
   return tokens;
 }
 
@@ -752,6 +757,12 @@ export function generateLine() {
   const lc = Stats.getSettings().levelChoice;
 
   if (lc === 'adaptive') return adaptiveLine();
+
+  // "5 · Numbers" level → the heavy numbers round (progressive, ~1:2 woven in words).
+  if (lc === '4') {
+    const nr = acquisitionRamp();
+    if (nr) return rampWordLine(nr, null);
+  }
 
   // Explicit fluency modes (manual level select): the user chose Words/Sentences,
   // so ALWAYS render real material using the whole alphabet — never fall back to
@@ -927,9 +938,10 @@ export function checkProgress() {
   const events = [];
   const lc = Stats.getSettings().levelChoice;
   const adaptive = lc === 'adaptive';
+  const numbersRound = lc === '4';
 
-  // Mastery marking runs in every non-fluency mode (incl. adaptive) — a key that
-  // crosses its gate still earns a "mastered" toast.
+  // Mastery marking runs in every non-fluency mode — a key that crosses its gate
+  // still earns a "mastered" toast.
   if (!FLUENCY_MODES.has(lc)) {
     for (const k of introductionOrder()) {
       if (!Stats.isMasteredFlag(k) && isMastered(k)) {
@@ -937,8 +949,8 @@ export function checkProgress() {
         events.push({ type: 'mastered', keyId: k });
       }
     }
-    // Acquisition ramp advanced to the next key(s) (adaptive only).
-    if (adaptive) {
+    // Numbers round advanced to the next digit(s).
+    if (numbersRound) {
       const r = acquisitionRamp();
       const activeStr = r ? r.active.join(' ') : '';
       if (lastRampActive !== null && activeStr && activeStr !== lastRampActive) {
@@ -946,8 +958,8 @@ export function checkProgress() {
       }
       lastRampActive = activeStr;
     }
-    // Curriculum progression (targets / level-ups) is Beginner-course only.
-    if (!adaptive) {
+    // Curriculum progression (targets / level-ups) is the Beginner-course path only.
+    if (!adaptive && !numbersRound) {
       if (lc === 'auto') {
         const label = maybeAdvanceStage();
         if (label) events.push({ type: 'levelUp', label, nextLabel: STAGES[Stats.getSettings().stage]?.label });
@@ -961,8 +973,8 @@ export function checkProgress() {
     }
   }
 
-  // Material-level promotion (auto/levels only — not adaptive, which has no phases).
-  if (!adaptive) {
+  // Material-level promotion (auto/levels only — not adaptive or the numbers round).
+  if (!adaptive && !numbersRound) {
     const mat = materialLevel();
     if (mat !== lastMaterial) {
       const rank = { clusters: 0, words: 1, sentences: 2 };
@@ -1064,10 +1076,12 @@ export function sessionKeyDeltas(minReps = 6) {
 export function stageLabel() {
   const c = Stats.getSettings().levelChoice;
   if (c === 'adaptive') {
-    const r = acquisitionRamp();
-    if (r) return `Adaptive — learning ${r.active.join(' ')}`;
     const f = adaptiveFocus().focus;
     return f.length ? `Adaptive — focus: ${f.join(' ')}` : 'Adaptive — building your profile';
+  }
+  if (c === '4') {   // "5 · Numbers" round
+    const r = acquisitionRamp();
+    if (r) return `Numbers — working on ${r.active.join(' ')}`;
   }
   if (c === 'words') return 'Words (fluency)';
   if (c === 'sentences') return 'Sentences (fluency)';

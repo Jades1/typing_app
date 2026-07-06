@@ -17,23 +17,26 @@ treatment enough to actually *learn* numbers/symbols/special keys?
   the finger-zone grouping from research/06.
 
 ## What we built (Decision 09 — Built)
-An **acquisition ramp** in adaptive mode (`acquisitionRamp()` in `engine.js`),
-derived purely from mastery (nothing persisted):
-- **A couple at a time:** digits by finger (`4,7 → 5,6 → 3,8 → 2,9 → 1,0`), then
-  symbols (comma/period/`'` first), then specials — each set drilled until it clears
-  the lenient `gateFor` gate (research/06), then the next slides in. Starts only once
-  ≥18/26 letters are mastered (letters solid first).
+The heavy deliberate drilling lives in the **"5 · Numbers" level** (a dedicated
+round), NOT in Adaptive — Adaptive gets only a light sprinkle. (Corrected after a
+first pass wrongly put the ramp into Adaptive.)
+
+**The Numbers round** (`acquisitionRamp()` in `engine.js`, `levelChoice === '4'`),
+derived purely from stats (nothing persisted):
+- **A couple at a time, accumulating:** digits by finger (`4,7 → 5,6 → 3,8 → 2,9 →
+  1,0`). The active pair slides forward as soon as the current ones are typed
+  *accurately* (`rampReady`: ≥8 recent attempts, ≥95%, **no speed** — so the next
+  number integrates fast); earlier numbers keep appearing (accumulating `introduced`
+  pool, weakness-weighted) so they build speed as new ones come in.
 - **Heavy over-exposure woven into real words:** ~**1 number per 2 letters (≈35% of
-  keystrokes)** — >30× natural frequency — as trailing punctuation
-  (`house,`), standalone digit chunks (`the 47 house 745 plan`), or interspersed
-  special keycaps — while the line stays **~70% real words** (letters keep getting
-  practiced via weak-letter word-bias). Not isolated number drills.
-- **Resolves the acquisition↔maintenance tension:** the ramp over-exposes
-  *un-mastered* keys regardless of `importance`; once a key masters it falls back to
-  the normal impact-weighted remediation (bursts only when weak). `importance()` /
-  `impact()` / `adaptiveFocus` ranking are **unchanged** — the ramp branches before
-  them, and `adaptiveFocus` merely filters out keys the ramp is handling.
-- Already-competent users skip the ramp automatically (sticky `mastered` flags).
+  keystrokes)** — e.g. `Room 747 has 747 child 74 think 747` — real words stay the
+  carrier (~70%). Not isolated number drills.
+- Full mastery (`isMastered`, speed-gated) still accrues in the background; it's just
+  not what advances the ramp.
+
+**Adaptive mode** gets a **light sprinkle** only (`sprinkleDigits`, ~1% of
+keystrokes) — a few numbers woven into word lines so they're not absent, without
+Adaptive becoming number-heavy. `importance()`/`impact()`/`adaptiveFocus` unchanged.
 
 ## Sources
 - Builds on research/02 (few-at-a-time acquisition), research/06 (finger zones +

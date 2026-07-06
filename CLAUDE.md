@@ -42,9 +42,9 @@ model). Key pieces in `engine.js`:
 - **Mastery gate** (`isMastered` via `gateFor(keyId)` — **category-aware**): over a
   **recent window** (last `RECENT_WINDOW` attempts, not lifetime). **Letters:**
   `≥MASTERY_MIN_ATTEMPTS`, `errRate ≤MASTERY_MAX_ERR`, `avgLat ≤TARGET_MS` (≈343 ms
-  = 35 WPM). **Numbers/symbols:** accuracy-only — 8 attempts, ≥95%, **speed waived**
-  (research/06: the goal is location + finger recall, not fluency — so a new number
-  integrates fast and the next slides in; speed builds later via maintenance). **Specials:** speed waived (no
+  = 35 WPM). **Numbers/symbols:** lenient — 12 attempts, ≤600 ms, ≥95% (research/06). (The
+  *Numbers round* advances its ramp faster via a separate accuracy-only `rampReady`
+  check; this global gate is unchanged.) **Specials:** speed waived (no
   latency). Base constants live in `stats.js`; the per-category thresholds live in
   `gateFor` in `engine.js`.
 - **Sticky mastery**: once graduated a key stays graduated (`markMastered`, a
@@ -102,13 +102,15 @@ model). Key pieces in `engine.js`:
   mid-session via `checkProgress()`. `'all'`/`'words'`/`'sentences'` are **fluency
   modes** (`FLUENCY_MODES`); `FULL_POOL_MODES` adds `'adaptive'` (all = null target,
   full pool).
-- **Acquisition ramp (adaptive, research/09)**: `acquisitionRamp()` → `{track, active,
-  next, pending}`, derived from mastery (nothing persisted). Introduces non-letter keys a
-  couple at a time (digits by finger `4,7→5,6→…` → symbols → specials) once ≥18/26 letters
-  mastered; `rampWordLine()` over-exposes the active keys (~10–40% of keystrokes) woven in
-  real words until each masters (lenient `gateFor`), then they fall back to `impact`-weighted
-  remediation. `adaptiveFocus(ramp)` filters `ramp.pending`. `checkProgress` emits
-  `{type:'rampAdvance'}`. `importance`/`impact` unchanged — ramp branches before them.
+- **Numbers round (research/09)**: the **"5 · Numbers" level** (`levelChoice === '4'`),
+  NOT adaptive. `acquisitionRamp()` → `{track:'digits', active, introduced, next}`,
+  derived from stats (nothing persisted): a couple digits at a time by finger
+  (`4,7→5,6→…`), advancing as soon as the current ones are typed *accurately*
+  (`rampReady`: ≥8 reps/≥95%/**no speed**), with earlier digits accumulating in
+  `introduced`. `generateLine` routes `'4'` → `rampWordLine()` = ~1:2 digits woven in
+  real words. Full `isMastered` (speed-gated) still accrues but doesn't drive the ramp.
+  `checkProgress` emits `{type:'rampAdvance'}`. **Adaptive** gets only `sprinkleDigits()`
+  (~1% — a light sprinkle), not the ramp.
 - **Push mode (research/04)**: `settings.pushMode` (home-screen toggle) → a rAF pacer in
   `app.js` (`startPacer`/`pacerLoop`/`onPacerCaught`) sweeps the prompt at `Stats.targetWpm()`
   (recent avg ×1.15, floored 20); non-punishing catch (flash+rebase). `effectiveStrict() =
