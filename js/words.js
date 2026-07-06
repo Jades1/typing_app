@@ -1,9 +1,11 @@
 // words.js — bundled word/sentence corpus + letter-mask filtering.
 //
-// Leaf module: no imports from the rest of the app (like fingers.js). Powers the
+// Imports only the static literary corpus (another leaf). Powers the
 // words → sentences fluency phase. A word/sentence is only ever shown if every
 // character is a key the learner has already mastered (filtering lives here for
 // words; sentences are filtered in engine.js, which knows pool/mastery state).
+
+import { LITERARY } from './literary.js';
 
 // ~260 common English words, roughly frequency-ordered. All /^[a-z]{1,8}$/ — no
 // apostrophes, hyphens, or capitals; no duplicates. ('i' dropped, 'a' kept.)
@@ -88,7 +90,7 @@ export const SENTENCES = [
   'The waves crashed hard against the rocks below.',
   'We finally reached the top, and the view was amazing!',
   'Why do the best days always seem to pass so fast?',
-];
+].concat(LITERARY);   // + ~240 interesting literary passages (variety, so adaptive stops cycling)
 
 // --- letter-mask filtering ----------------------------------------------------
 // 'a' -> bit 0 ... 'z' -> bit 25. A word is eligible for a set of allowed letters

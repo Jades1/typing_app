@@ -11,7 +11,9 @@ index.html      page structure (topbar, prompt, keyboard, panel, summary modal)
 styles.css      theme-aware styling (light/dark/auto), keyboard + finger colours
 js/
   fingers.js    key -> finger map (Mac QWERTY), finger metadata/colours, shift helpers
-  words.js      bundled word/sentence corpus + letter-bitmask filtering (leaf module)
+  words.js      bundled word/sentence corpus + letter-bitmask filtering (imports literary.js)
+  literary.js   ~240 interesting literary sentences (leaf) — merged into words.SENTENCES
+  shortcuts.js  Mac-shortcut corpus (25) + combo matching + MC scheduling (imports stats.js)
   stats.js      per-key stats (incl. recent-window buffer + mastery flags), gate
                 constants, WPM/accuracy, session history, streaks, localStorage + migration
   engine.js     mastery gate, one-at-a-time target, drill pool, forced-target sampler,
@@ -112,6 +114,15 @@ model). Key pieces in `engine.js`:
   in `RAMP_TRACK` (digits ~1:2, symbols high, specials ~1:4 since disruptive). Full
   `isMastered` (speed-gated) accrues but doesn't drive the ramp. `checkProgress` emits
   `{type:'rampAdvance'}`. **Adaptive** gets only `sprinkleDigits()` (~1%), not a ramp.
+- **Mac shortcuts mode (`levelChoice: 'shortcuts'`, research/10)**: `js/shortcuts.js`.
+  `generateLine` → `Shortcuts.shortcutLine()` returns a **single `{type:'shortcut'}` token**
+  (a card, not `.tok` spans). `app.js` has a dedicated path: `renderShortcutCard`,
+  `handleShortcutKey` (claims Cmd combos at the TOP of `onKeydown`, before the
+  let-shortcuts-through line), `answerShortcut`, `judgeShortcut` (records `sc:<id>`
+  produce / `scq:<id>` knowledge as synthetic keys — no schema change). Combo detection
+  uses `e.code` (Shift/Option-proof). **Knowledge-only shortcuts (⌘W/⌘Space…) have
+  `keys:null` and only get multiple-choice prompts — never required by keypress.**
+  `checkProgress`/`stageLabel` early-return to shortcuts helpers.
 - **Push mode (research/04)**: `settings.pushMode` (home-screen toggle) → a rAF pacer in
   `app.js` (`startPacer`/`pacerLoop`/`onPacerCaught`) sweeps the prompt at `Stats.targetWpm()`
   (recent avg ×1.15, floored 20); non-punishing catch (flash+rebase). `effectiveStrict() =

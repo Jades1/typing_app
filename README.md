@@ -65,6 +65,14 @@ No build step, no dependencies. Open `index.html` in a browser and start typing.
   since they emit no timing).
 - **Hybrid practice text** — pronounceable letter clusters for letters, standalone
   tokens for numbers and symbols, and explicit prompts for special keys.
+- **Mac shortcuts mode** — practice the most useful ⌘ shortcuts two ways: *produce*
+  them (the action is shown, you press the real combo, e.g. "Cut" → ⌘X) and *know
+  what they do* (multiple-choice, answered with 1–4). Shortcuts that would close the
+  tab or are OS-level (⌘W, ⌘Space…) are **quiz-only**, so nothing dangerous is ever
+  required. The summary tracks how many of the 25 you know.
+- **A large, interesting prose corpus** — hundreds of varied literary sentences
+  (nature, cities, science, history, the ocean, memory…) so Sentences and Adaptive
+  practice stay fresh instead of cycling a handful.
 - **Timed daily sessions** — pick a length (1/3/5/10/15 min), get a live countdown
   with running WPM and accuracy, and an end-of-session summary.
 - **Motivational session feedback** — the end-of-session summary shows whether

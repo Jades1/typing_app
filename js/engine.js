@@ -15,6 +15,7 @@ import {
 } from './fingers.js';
 import * as Stats from './stats.js';
 import * as Words from './words.js';
+import * as Shortcuts from './shortcuts.js';
 
 const VOWELS = new Set(['a', 'e', 'i', 'o', 'u']);
 
@@ -798,6 +799,7 @@ export function generateLine() {
   const lc = Stats.getSettings().levelChoice;
 
   if (lc === 'adaptive') return adaptiveLine();
+  if (lc === 'shortcuts') return Shortcuts.shortcutLine();
 
   // Capitals ('3') / Numbers ('4') / Symbols ('5') / Special keys ('6') → deliberate rounds.
   if (RAMP_LEVELS[lc]) {
@@ -960,6 +962,7 @@ export function startTracking() {
   recentSentences = [];
   adaptLineNo = 0; burstRotation = 0; probeRotation = 0;
   lastRampActive = acquisitionRamp()?.active.join(' ') ?? '';   // seed: no spurious ramp notice
+  Shortcuts.startTracking();
   // Per-key snapshot so the adaptive summary can report which keys improved.
   sessionKeySnapshot = {};
   for (const id of Object.keys(Stats.getState().keys)) {
@@ -978,6 +981,7 @@ function resetPace() {
 export function checkProgress() {
   const events = [];
   const lc = Stats.getSettings().levelChoice;
+  if (lc === 'shortcuts') return Shortcuts.checkProgress();
   const adaptive = lc === 'adaptive';
   const rampRound = !!RAMP_LEVELS[lc];   // Numbers / Symbols / Special-keys deliberate rounds
 
@@ -1116,6 +1120,10 @@ export function sessionKeyDeltas(minReps = 6) {
 
 export function stageLabel() {
   const c = Stats.getSettings().levelChoice;
+  if (c === 'shortcuts') {
+    const p = Shortcuts.shortcutProgress();
+    return `Mac shortcuts — ${p.known}/${p.total} known`;
+  }
   if (c === 'adaptive') {
     const f = adaptiveFocus().focus;
     return f.length ? `Adaptive — focus: ${f.join(' ')}` : 'Adaptive — building your profile';

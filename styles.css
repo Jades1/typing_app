@@ -94,6 +94,32 @@ main { max-width: 960px; margin: 0 auto; padding: 1.2rem; }
   box-shadow: 0 1px 0 var(--border);
 }
 .finger-hint { text-align: center; color: var(--accent); font-weight: 600; min-height: 1.4em; margin: .5rem 0 1rem; }
+
+/* ---- Mac shortcuts mode ---- */
+.shortcut-card { text-align: center; padding: .4rem 0 .2rem; }
+.sc-q { font-size: 1.5rem; font-weight: 700; margin: .2rem 0 .1rem; }
+.sc-sub { color: var(--muted); font-size: .85rem; margin: .1rem 0 .8rem; }
+.sc-hint-keys { color: var(--accent); font-weight: 600; }
+.sc-keycaps { display: flex; gap: .4rem; justify-content: center; margin: .5rem 0 .8rem; }
+.sc-keycaps.hidden { visibility: hidden; }
+.sc-keycaps .keycap {
+  min-width: 2rem; padding: .35rem .5rem; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface-2); font-size: 1.2rem; font-weight: 700; box-shadow: 0 2px 0 var(--border);
+}
+.sc-options { list-style: none; margin: .4rem auto 0; padding: 0; max-width: 30rem; display: grid; gap: .5rem; }
+.sc-option {
+  display: flex; align-items: center; gap: .6rem; padding: .55rem .8rem; text-align: left;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--surface); cursor: pointer;
+  font-size: 1rem; transition: background .1s;
+}
+.sc-option:hover { background: var(--surface-2); }
+.sc-num { display: inline-flex; width: 1.5rem; height: 1.5rem; align-items: center; justify-content: center;
+  border-radius: 6px; background: var(--surface-2); font-weight: 700; font-size: .85rem; }
+.sc-option.sc-correct { border-color: var(--good); background: color-mix(in srgb, var(--good) 15%, var(--surface)); }
+.sc-option.sc-chosen-wrong { border-color: var(--error); background: color-mix(in srgb, var(--error) 15%, var(--surface)); }
+.shortcut-card.sc-right .sc-q, .shortcut-card.sc-right .sc-keycaps .keycap { color: var(--good); }
+.shortcut-card.sc-wrong .sc-keycaps .keycap { border-color: var(--error); }
+.sc-note { color: var(--muted); font-size: .75rem; font-style: italic; margin: .8rem 0 0; }
 /* Finger guidance is scaffolding — hide the text hint when toggled off; key tints stay. */
 body.no-fingers .finger-hint { visibility: hidden; }
 

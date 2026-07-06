@@ -27,7 +27,8 @@ whenever we research or decide something.
 | [06](06-numbers-symbols-gate.md) | **Faster, accuracy-focused gate** for numbers/symbols (~600 ms, fewer reps) | Low-frequency keys need location + finger recall, not fluency | COMMERCIAL | **Built** |
 | [07](07-content-first-adaptive-default.md) | **Content-first adaptive is the default**; sequential curriculum demoted to a "Beginner course" toggle | Target user is an improver uncertain of a few keys, not an absolute beginner | derived from 02 + 05 | **Built** |
 | [08](08-key-importance-weighting.md) | Rank what-to-work-on by **impact = weakness × usage frequency** (a weak common `p` beats a weak rare `$`) | Improving a common key pays off across all typing; a rare key barely moves the needle | ANECDOTAL (letter-freq data) | **Built** |
-| [09](09-deliberate-nonletter-acquisition.md) | **Progressive over-exposure ramp** for numbers/symbols/specials (a couple at a time, woven into words) until mastered | Rare-but-needed keys require deliberate over-practice, not frequency-weighted neglect | derived from 02 + 06 + 08 | **Built** |
+| [09](09-deliberate-nonletter-acquisition.md) | **Progressive over-exposure ramp** for capitals/numbers/symbols/specials (a few at a time, woven into words) until mastered | Rare-but-needed keys require deliberate over-practice, not frequency-weighted neglect | derived from 02 + 06 + 08 | **Built** |
+| [10](10-mac-shortcuts-practice.md) | **Mac shortcuts mode** — produce the combo + multiple-choice "what does it do"; dangerous/OS-level ones are quiz-only | Many shortcuts can't be safely fired in a browser; MC is gradeable + safe | design decision | **Built** |
 
 ## Status legend
 **Adopted** = in the app · **Proposed** = decided, not yet built · **Open /

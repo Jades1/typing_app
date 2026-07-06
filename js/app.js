@@ -6,6 +6,7 @@ import * as Engine from './engine.js';
 import * as Keyboard from './keyboard.js';
 import { createSession } from './session.js';
 import { notify, initNotify } from './notify.js';
+import * as Shortcuts from './shortcuts.js';
 import { FINGERS } from './fingers.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -71,8 +72,10 @@ const PACER_CATCH_SETBACK = 2;      // after a catch, pacer rebases this far beh
 const PACER_CATCH_COOLDOWN_MS = 1000;
 const PACER_FLASH_MS = 450;
 let pacer = null;   // { targetWpm, charMs, lineStartTs, lastPainted, raf, catches, linesTotal, linesAhead, lineCaught, cooldownUntil, active }
+let scPhase = 'answer';   // shortcuts mode: 'answer' | 'feedback'
 
 function renderLine() {
+  if (tokens[0]?.type === 'shortcut') { tokenEls = []; pointer = 0; renderShortcutCard(tokens[0]); return; }
   els.prompt.innerHTML = '';
   tokenEls = tokens.map((tok) => {
     const span = document.createElement('span');
@@ -108,6 +111,7 @@ function nextLine() {
 
 function refreshKeyboardMastery() {
   const lc = Stats.getSettings().levelChoice;
+  if (lc === 'shortcuts') { Keyboard.updateMastery({}, null); return; }
   let ring;
   if (lc === 'adaptive') ring = Engine.adaptiveFocus().focus;
   else { const ramp = Engine.acquisitionRamp(); ring = ramp ? ramp.active : Engine.targetKey(); }
@@ -132,6 +136,9 @@ function handleProgressEvents(events) {
     } else if (ev.type === 'rampAdvance') {
       els.stageLabel.textContent = Engine.stageLabel();
       notify(`Now working on ${ev.active.map(labelForKey).join(' ')}`, { duration: 4500 });
+    } else if (ev.type === 'shortcutMastered') {
+      els.stageLabel.textContent = Engine.stageLabel();
+      notify(`${ev.combo} ${ev.action} — got it! ✅`, { duration: 4000 });
     } else if (ev.type === 'newTarget') {
       const to = labelForKey(ev.keyId);
       notify(mastered
@@ -175,6 +182,9 @@ function judge(tok, correct, isChar) {
 function onKeydown(e) {
   if (!session || !session.isRunning()) return;
 
+  const scTok = tokens[pointer];
+  if (scTok?.type === 'shortcut') { handleShortcutKey(e, scTok); return; }   // shortcuts mode owns Cmd combos
+
   const shortcut = e.metaKey || e.ctrlKey;      // let real browser shortcuts through
   // Swallow app-owned keys BEFORE any early return, so Tab et al. never reach the
   // browser mid-session even if the current token isn't resolved yet.
@@ -214,7 +224,7 @@ function startSession() {
   els.start.textContent = 'Stop';
   els.start.classList.add('running');
   document.body.classList.add('in-session');
-  if (Stats.getSettings().pushMode) startPacer();
+  if (Stats.getSettings().pushMode && Stats.getSettings().levelChoice !== 'shortcuts') startPacer();
   nextLine();   // session is now running → announces the current target
 }
 
@@ -309,6 +319,79 @@ function updatePaceHud() {
   if (on) els.pace.textContent = `${pacer.targetWpm}`;
 }
 
+// --- Mac shortcuts mode -------------------------------------------------------
+function keycapsHtml(arr) { return arr.map((c) => `<span class="keycap">${escapeHtml(c)}</span>`).join(''); }
+function optionsHtml(options) {
+  return '<ol class="sc-options">' + options.map((o, i) =>
+    `<li class="sc-option" data-correct="${o.correct}"><span class="sc-num">${i + 1}</span>${escapeHtml(o.label)}</li>`).join('') + '</ol>';
+}
+
+function renderShortcutCard(tok) {
+  scPhase = 'answer';
+  const s = tok.shortcut;
+  let html = '<div class="shortcut-card">';
+  if (tok.mode === 'produce') {
+    html += `<p class="sc-q">${escapeHtml(s.action)}</p><p class="sc-sub">press the shortcut</p>`
+      + `<div class="sc-keycaps${tok.hint ? '' : ' hidden'}">${keycapsHtml(s.keycaps)}</div>`;
+  } else if (tok.mode === 'recall-action') {
+    html += `<div class="sc-keycaps">${keycapsHtml(s.keycaps)}</div>`
+      + `<p class="sc-sub">what does it do? &nbsp;<span class="sc-hint-keys">press 1–4</span></p>${optionsHtml(tok.options)}`;
+  } else {
+    html += `<p class="sc-q">${escapeHtml(s.action)}</p>`
+      + `<p class="sc-sub">which shortcut? &nbsp;<span class="sc-hint-keys">press 1–4</span></p>${optionsHtml(tok.options)}`;
+  }
+  if (s.note) html += `<p class="sc-note">${escapeHtml(s.note)}</p>`;
+  els.prompt.innerHTML = html + '</div>';
+  els.prompt.querySelectorAll('.sc-option').forEach((el, i) => el.addEventListener('click', () => answerShortcut(i)));
+  Keyboard.clearHighlight();
+  els.fingerHint.textContent = (tok.mode === 'produce')
+    ? `Hold ${s.keycaps.slice(0, -1).join(' ')} + ${s.keycaps[s.keycaps.length - 1]}` : '';
+}
+
+function answerShortcut(i) {
+  const tok = tokens[pointer];
+  if (scPhase !== 'answer' || !tok || tok.type !== 'shortcut' || !tok.options) return;
+  const opt = tok.options[i];
+  if (opt) judgeShortcut(tok, !!opt.correct, i);
+}
+
+function judgeShortcut(tok, correct, chosenIdx) {
+  if (scPhase !== 'answer') return;
+  scPhase = 'feedback';
+  Stats.recordKey(tok.keyId, correct, undefined);
+  if (session) session.recordResult(correct, false);
+  const card = els.prompt.querySelector('.shortcut-card');
+  if (card) card.classList.add(correct ? 'sc-right' : 'sc-wrong');
+  if (tok.options) {
+    els.prompt.querySelectorAll('.sc-option').forEach((el, i) => {
+      if (el.dataset.correct === 'true') el.classList.add('sc-correct');
+      if (i === chosenIdx && !correct) el.classList.add('sc-chosen-wrong');
+    });
+  } else if (!correct) {
+    els.prompt.querySelector('.sc-keycaps')?.classList.remove('hidden');   // reveal on a produce miss
+  }
+  setTimeout(nextLine, correct ? 750 : 1800);
+}
+
+function handleShortcutKey(e, tok) {
+  if (scPhase === 'feedback') { if (!(e.metaKey || e.ctrlKey) && SWALLOW_KEYS.has(e.key)) e.preventDefault(); return; }
+  if (e.repeat) { e.preventDefault(); return; }
+  if (MODIFIER_KEYS.has(e.key)) return;                       // ⌘ down alone: wait for the base key
+  if (e.key === 'Escape') { e.preventDefault(); judgeShortcut(tok, false, -1); return; }
+  if (tok.mode === 'produce') {
+    if (e.metaKey || e.ctrlKey || e.altKey) {                 // a combo → judge it (always preventDefault)
+      e.preventDefault();
+      judgeShortcut(tok, Shortcuts.comboMatches(e, tok.shortcut.keys), -1);
+      return;
+    }
+    if (SWALLOW_KEYS.has(e.key)) e.preventDefault();
+    return;                                                   // plain key: ignore, don't judge
+  }
+  const n = parseInt(e.key, 10);                              // recall: digits 1–4 pick an option
+  if (n >= 1 && n <= 4) { e.preventDefault(); answerShortcut(n - 1); return; }
+  if (SWALLOW_KEYS.has(e.key)) e.preventDefault();
+}
+
 function fmtTime(ms) {
   const s = Math.max(0, Math.round(ms / 1000));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
@@ -320,7 +403,11 @@ function updateHud(live) {
   els.acc.textContent = `${Math.round(live.accuracy * 100)}%`;
   // Adaptive shows weak-key focus; the Numbers round shows the digits being learned.
   const lc = Stats.getSettings().levelChoice;
-  if (lc === 'adaptive') {
+  if (lc === 'shortcuts') {
+    const p = Shortcuts.shortcutProgress();
+    els.nextLabel.textContent = 'Known';
+    els.next.textContent = `${p.known} / ${p.total}`;
+  } else if (lc === 'adaptive') {
     const f = Engine.adaptiveFocus().focus;
     els.nextLabel.textContent = 'Focus';
     els.next.textContent = f.length ? f.map(labelForKey).join(' ') : '—';
@@ -353,8 +440,28 @@ function deltaChip(value, digits = 0, suffix = '') {
   return `<span class="delta ${up ? 'up' : 'down'}">${up ? '▲' : '▼'}${mag}${suffix}</span>`;
 }
 
+function showShortcutSummary(res) {
+  const p = Shortcuts.shortcutProgress();
+  const weak = Shortcuts.weakestShortcuts(3);
+  const weakHtml = weak.length
+    ? weak.map((w) => `<span class="chip">${escapeHtml(w.combo)} · ${escapeHtml(w.action)}</span>`).join(' ')
+    : '<em>nice — no weak spots</em>';
+  els.summaryBody.innerHTML = `
+    <div class="summary-grid">
+      <div><span class="big">${res.attempts}</span><label>answers</label></div>
+      <div><span class="big">${Math.round(res.accuracy * 100)}%</span><label>accuracy</label></div>
+      <div><span class="big">${p.known}/${p.total}</span><label>shortcuts known</label></div>
+      <div><span class="big">${res.streak}🔥</span><label>day streak</label></div>
+    </div>
+    <p class="progress-count">Can produce ${p.produced} / ${p.producedTotal} of the pressable ones.</p>
+    <p class="weak-line"><strong>Review:</strong> ${weakHtml}</p>
+    <p class="encourage">Keep going — the ones you fumble come back more often.</p>`;
+  els.summary.classList.add('open');
+}
+
 function showSummary(res) {
   endUiReset();
+  if (Stats.getSettings().levelChoice === 'shortcuts') { showShortcutSummary(res); return; }
   const adaptive = Stats.getSettings().levelChoice === 'adaptive';
   const cmp = Stats.sessionComparison();
   const prog = Engine.masteryProgress();
