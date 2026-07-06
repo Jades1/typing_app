@@ -85,7 +85,10 @@ model). Key pieces in `engine.js`:
   `adaptiveFocus()` → `{focus, probes}`: `focus` = ≤`ADAPT_FOCUS_N` keys measuring
   weak over the recent window (≥`ADAPT_ERR_WEAK` errors or ≥`ADAPT_LAT_WEAK`× your
   median latency, with ≥`ADAPT_MIN_ATTEMPTS` data); `probes` = under-sampled/stale
-  digits+symbols. `adaptiveLine()` = weak-letter-biased `wordLine()` + `sentenceLine`
+  digits+symbols. Focus is ranked by `impact(k) = weakness(k) × importance(k)`
+  (`importance` = key usage frequency, research/08) so a weak common key beats a weak
+  rare one; `weakest()` (the panel) sorts by `impact` too. `adaptiveLine()` =
+  weak-letter-biased `wordLine()` + `sentenceLine`
   + `spliceAtSpace(burstTokens(k))` for a focus/probe key words can't cover (digits,
   symbols, `z`/`q`; `pickBurstKey` cadence). ~90% content, ≤10% drill. Mastery still
   accrues (display/continuity) but does **not** gate. HUD slot shows focus keys, not

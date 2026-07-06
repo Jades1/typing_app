@@ -247,6 +247,27 @@ export function weakness(keyId, focus = null) {
   return w;
 }
 
+// --- key importance (usage frequency) ----------------------------------------
+// Used to rank WHAT to work on, so a weak-but-rare key ('$') doesn't outrank a
+// common one ('p'). Impact = weakness × importance. English letter frequencies (%);
+// commas/periods weighted like common letters; other symbols/specials low. (research/08)
+const LETTER_FREQ = {
+  e: 12.7, t: 9.1, a: 8.2, o: 7.5, i: 7.0, n: 6.7, s: 6.3, h: 6.1, r: 6.0,
+  d: 4.3, l: 4.0, c: 2.8, u: 2.8, m: 2.4, w: 2.4, f: 2.2, g: 2.0, y: 2.0,
+  p: 1.9, b: 1.5, v: 0.98, k: 0.77, j: 0.15, x: 0.15, q: 0.095, z: 0.074,
+};
+const PUNCT_FREQ = { '.': 6.5, ',': 6.5, "'": 2.0, '-': 1.5, '"': 0.8, '?': 0.6, ';': 0.5, ':': 0.5, '!': 0.4, '/': 0.3 };
+function importance(keyId) {
+  const lower = /^[A-Z]$/.test(keyId) ? keyId.toLowerCase() : keyId;
+  if (LETTER_FREQ[lower] != null) return LETTER_FREQ[lower];
+  if (/^[0-9]$/.test(keyId)) return 1.2;      // digits: moderate
+  if (PUNCT_FREQ[keyId] != null) return PUNCT_FREQ[keyId];
+  if (isSpecialKey(keyId)) return 0.3;
+  return 0.25;                                // other symbols ($ # @ % [ ] { } …)
+}
+
+export function impact(keyId) { return weakness(keyId) * importance(keyId); }
+
 // Weakest keys within the active pool, for summaries / stats views.
 export function weakest(n = 8) {
   const pool = activePool();
@@ -255,7 +276,7 @@ export function weakest(n = 8) {
     .filter((id) => Stats.keyStat(id).attempts > 0)
     .map((id) => ({ keyId: id, weakness: weakness(id),
       errorRate: Stats.errorRate(id), avgLatency: Stats.avgLatency(id) }))
-    .sort((a, b) => b.weakness - a.weakness)
+    .sort((a, b) => impact(b.keyId) - impact(a.keyId))   // impact = weakness × usage frequency
     .slice(0, n);
 }
 
@@ -550,7 +571,7 @@ export function adaptiveFocus() {
     const slow = r.latSamples >= 3 && r.avgLat >= ADAPT_LAT_WEAK * base;
     if (r.errRate >= ADAPT_ERR_WEAK || slow) focus.push(id);
   }
-  focus.sort((a, b) => weakness(b) - weakness(a));
+  focus.sort((a, b) => impact(b) - impact(a));   // rank by weakness × usage frequency
   return { focus: focus.slice(0, ADAPT_FOCUS_N), probes };
 }
 
