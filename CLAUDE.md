@@ -102,15 +102,16 @@ model). Key pieces in `engine.js`:
   mid-session via `checkProgress()`. `'all'`/`'words'`/`'sentences'` are **fluency
   modes** (`FLUENCY_MODES`); `FULL_POOL_MODES` adds `'adaptive'` (all = null target,
   full pool).
-- **Numbers round (research/09)**: the **"5 · Numbers" level** (`levelChoice === '4'`),
-  NOT adaptive. `acquisitionRamp()` → `{track:'digits', active, introduced, next}`,
-  derived from stats (nothing persisted): ~3 digits active at once by finger
-  (`RAMP_ACTIVE_N.digits`), each incorporated as soon as typed *accurately* a few
-  times (`rampReady`: ≥4 reps/≥95%/**no speed**), with earlier digits accumulating in
-  `introduced` (interleaved). `generateLine` routes `'4'` → `rampWordLine()` = ~1:2 digits woven in
-  real words. Full `isMastered` (speed-gated) still accrues but doesn't drive the ramp.
-  `checkProgress` emits `{type:'rampAdvance'}`. **Adaptive** gets only `sprinkleDigits()`
-  (~1% — a light sprinkle), not the ramp.
+- **Deliberate rounds (research/09)**: `RAMP_LEVELS` maps the Beginner-course levels
+  `'4'` Numbers / `'5'` Symbols / `'6'` Special keys to a heavy woven-in-words round,
+  NOT adaptive. `acquisitionRamp()` → `{track, active, introduced, next}`, derived from
+  stats (nothing persisted): ~3 keys active at once, each incorporated as soon as typed
+  *accurately* a few times (`rampReady`: ≥4 reps, `errRate≤0.5`, **exposure-based, no
+  speed** — learning errors must NOT stall progress), earlier keys accumulating in
+  `introduced`. `generateLine` routes those levels → `rampWordLine()`; per-track density
+  in `RAMP_TRACK` (digits ~1:2, symbols high, specials ~1:4 since disruptive). Full
+  `isMastered` (speed-gated) accrues but doesn't drive the ramp. `checkProgress` emits
+  `{type:'rampAdvance'}`. **Adaptive** gets only `sprinkleDigits()` (~1%), not a ramp.
 - **Push mode (research/04)**: `settings.pushMode` (home-screen toggle) → a rAF pacer in
   `app.js` (`startPacer`/`pacerLoop`/`onPacerCaught`) sweeps the prompt at `Stats.targetWpm()`
   (recent avg ×1.15, floored 20); non-punishing catch (flash+rebase). `effectiveStrict() =

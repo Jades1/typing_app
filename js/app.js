@@ -110,8 +110,7 @@ function refreshKeyboardMastery() {
   const lc = Stats.getSettings().levelChoice;
   let ring;
   if (lc === 'adaptive') ring = Engine.adaptiveFocus().focus;
-  else if (lc === '4' && Engine.acquisitionRamp()) ring = Engine.acquisitionRamp().active;
-  else ring = Engine.targetKey();
+  else { const ramp = Engine.acquisitionRamp(); ring = ramp ? ramp.active : Engine.targetKey(); }
   Keyboard.updateMastery(Engine.confidenceMap(), ring);
 }
 
@@ -325,7 +324,7 @@ function updateHud(live) {
     const f = Engine.adaptiveFocus().focus;
     els.nextLabel.textContent = 'Focus';
     els.next.textContent = f.length ? f.map(labelForKey).join(' ') : '—';
-  } else if (lc === '4' && Engine.acquisitionRamp()) {
+  } else if (Engine.acquisitionRamp()) {          // Numbers / Symbols / Special-keys round
     els.nextLabel.textContent = 'Learning';
     els.next.textContent = Engine.acquisitionRamp().active.map(labelForKey).join(' ');
   } else {

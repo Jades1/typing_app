@@ -17,11 +17,13 @@ treatment enough to actually *learn* numbers/symbols/special keys?
   the finger-zone grouping from research/06.
 
 ## What we built (Decision 09 — Built)
-The heavy deliberate drilling lives in the **"5 · Numbers" level** (a dedicated
-round), NOT in Adaptive — Adaptive gets only a light sprinkle. (Corrected after a
-first pass wrongly put the ramp into Adaptive.)
+The heavy deliberate drilling lives in the **Beginner-course category levels** —
+Numbers (`'4'`), Symbols (`'5'`), Special keys (`'6'`) — each a dedicated round, NOT
+in Adaptive (which gets only a light sprinkle). (Corrected after a first pass wrongly
+put the ramp into Adaptive.) Per-track density in `RAMP_TRACK`: numbers ~1:2, symbols
+high, special keys ~1:4 (they disrupt flow more).
 
-**The Numbers round** (`acquisitionRamp()` in `engine.js`, `levelChoice === '4'`),
+**Each round** (`acquisitionRamp()` in `engine.js`, `RAMP_LEVELS`),
 derived purely from stats (nothing persisted):
 - **A few at a time, accumulating, fast:** ~**3 digits active at once** (by finger),
   each incorporated as soon as it's typed *accurately* just a **few times**
