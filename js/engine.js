@@ -589,8 +589,12 @@ let lastRampActive = null;       // for the {type:'rampAdvance'} notification
 // Fast advancement check for the Numbers round: accuracy/location only (no speed),
 // so the next number comes in quickly. Full speed-based mastery (gateFor) is separate.
 function rampReady(k) {
+  // Incorporation is EXPOSURE-based: a few reps and you're getting it more often
+  // than not → bring in the next number. Learning errors must NOT block progress
+  // (the digit stays in the `introduced` pool and keeps being practiced). Full
+  // accuracy/speed is the separate isMastered gate, not this.
   const r = Stats.recentStats(k);
-  return r.attempts >= 4 && r.errRate <= Stats.MASTERY_MAX_ERR;   // low bar: a few accurate hits
+  return r.attempts >= 4 && r.errRate <= 0.5;
 }
 
 // The Numbers round — the "5 · Numbers" level (stage index 4). Progressive digit
