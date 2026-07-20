@@ -11,7 +11,8 @@ const STORAGE_KEY = 'typing_app_v1';
 // These live here (the lowest layer) because both the storage/migration code
 // below and engine.js need them; engine imports them via the Stats namespace so
 // there is a single source of truth and no circular import.
-export const RECENT_WINDOW = 30;           // per-key ring buffer size
+export const RECENT_WINDOW = 30;           // mastery-gate read span (last N attempts)
+export const RECENT_MAX = 200;             // per-key ring buffer cap (widest read anyone needs)
 export const TARGET_MS = 343;              // 35 WPM ≈ 175 cpm ≈ 343 ms/keystroke
 export const MASTERY_MIN_ATTEMPTS = 20;    // recent attempts required to master
 export const MASTERY_MIN_LAT_SAMPLES = 10; // recent correct-latency samples required
@@ -133,12 +134,18 @@ export function recordKey(keyId, correct, latencyMs) {
   //    0  correct keystroke without a usable latency (e.g. special keys)
   //   -1  error
   k.recent.push(!correct ? -1 : (validLat ? latencyMs : 0));
-  if (k.recent.length > RECENT_WINDOW) k.recent.shift();
+  if (k.recent.length > RECENT_MAX) k.recent.shift();
 }
 
-// Recent-window view of a key (last RECENT_WINDOW attempts), for the mastery gate.
-export function recentStats(keyId) {
-  const rec = keyStat(keyId).recent || [];
+// Windowed view of a key's recent attempts. The buffer holds up to RECENT_MAX, but
+// each consumer reads back only the span it wants:
+//   - mastery gate / ETA / ramp / session deltas -> the default RECENT_WINDOW (30),
+//     which is what those thresholds are calibrated against. Do NOT widen them.
+//   - adaptive focus selection -> a frequency-normalized span (engine.focusWindow),
+//     so a common key like 'e' is judged on ~5 sessions of evidence, not ~80 seconds.
+export function recentStats(keyId, n = RECENT_WINDOW) {
+  const all = keyStat(keyId).recent || [];
+  const rec = all.length > n ? all.slice(-n) : all;
   let errors = 0;
   const lats = [];
   for (const e of rec) {

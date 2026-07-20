@@ -301,6 +301,23 @@ function importance(keyId) {
 
 export function impact(keyId) { return weakness(keyId) * importance(keyId); }
 
+// --- frequency-normalized evidence window -------------------------------------
+// RECENT_WINDOW is a count of ATTEMPTS, not a span of time, and letter frequency
+// varies ~180x. At 30 attempts, 'e' is judged on ~80 seconds of typing while 'z' is
+// judged on ~50 sessions — which is why focus keys churned. Scaling the window by
+// usage frequency gives every key a comparable span (~FOCUS_SESSIONS sessions), so
+// focus selection settles. Clamped at both ends: the extremes can't be evened out
+// without unbounded memory, and the floor must leave room for ADAPT_MIN_ATTEMPTS.
+const FOCUS_SESSIONS = 5;               // evidence should span ~this many sessions
+const KEYSTROKES_PER_SESSION = 875;     // ~5 min at ~35 WPM (the settings default)
+const FOCUS_WIN_MIN = 15;               // floor — must exceed ADAPT_MIN_ATTEMPTS (8)
+const FOCUS_WIN_MAX = Stats.RECENT_MAX;
+
+export function focusWindow(keyId) {
+  const n = Math.round(importance(keyId) / 100 * KEYSTROKES_PER_SESSION * FOCUS_SESSIONS);
+  return Math.min(FOCUS_WIN_MAX, Math.max(FOCUS_WIN_MIN, n));
+}
+
 // Weakest keys within the active pool, for summaries / stats views.
 export function weakest(n = 8) {
   const pool = activePool();
@@ -639,7 +656,7 @@ export function adaptiveFocus(ramp = acquisitionRamp()) {
   const focus = []; const probes = [];
   for (const id of ids) {
     if (rampPending.has(id)) continue;
-    const r = Stats.recentStats(id);
+    const r = Stats.recentStats(id, focusWindow(id));   // ~5 sessions, not ~80 seconds
     const isLetter = /^[a-z]$/.test(id);
     const stale = !isLetter && Stats.timesSinceSeen(id) > ADAPT_STALE;
     if (r.attempts < ADAPT_MIN_ATTEMPTS || stale) { probes.push(id); continue; }
