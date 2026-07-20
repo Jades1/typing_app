@@ -36,7 +36,15 @@ const CAPS_WORD_P = 0.2;            // capitalize a word's first letter (when ca
 const SENTENCE_LINE_P = 0.6;        // terminal fluency: sentence vs word line
 const MIXED_LINE_P = 0.3;           // terminal fluency: classic mixed line (keeps digits/symbols in rotation)
 const FREQ_WEIGHT = 0.6;            // frequency-rank boost in word scoring
-const WEAK_WORD_BOOST = 1.5;        // words containing the weakest mastered letter
+// How hard word selection is pulled toward words containing your focus letters.
+// This is THE intensity dial for adaptive remediation — raising it puts more of the
+// weak key in front of you, at the cost of drawing from a narrower slice of the
+// corpus. Measured effect on a focus letter's share of typed characters (2000-word
+// corpus): 1.5 -> ~3.5%, 6 -> ~10%, 9 -> ~13%. Untargeted baseline for 'p' is ~2.6%.
+const WEAK_WORD_BOOST = 9;          // per occurrence of a focus letter in the word
+const WEAK_WORD_HIT_CAP = 3;        // ceiling on counted occurrences per word
+const WEAK_WORD_BOOST_AMBIENT = 1.5;  // gentle legacy pull toward the single weakest letter,
+                                      // used when there is no real focus set to remediate
 const RECENT_WORD_DECAY = 0.55;
 const RECENT_WORD_PENALTY = 1.8;
 const SENTENCE_NO_REPEAT = 5;
@@ -51,6 +59,7 @@ const MIN_FOCUS_WORDS = 4;        // < this many corpus words contain the letter
 const DRILL_EVERY = 2;            // focus-key burst at most every N lines
 const PROBE_EVERY = 3;            // coverage probe burst at most every N lines
 const ADAPT_SENTENCE_P = 0.35;    // sentence-line probability (when no burst pending)
+const ADAPT_SENTENCE_P_FOCUS = 0.15;  // …reduced while remediating (sentences can't be biased)
 const BURST_TRIM = 8;             // chars trimmed from the word backbone when a burst is injected
 const ADAPT_SPRINKLE_P = 0.5;     // adaptive word line: chance to sprinkle in a number (light)
 
@@ -494,27 +503,29 @@ function weakestOf(letterSet) {
   return best;
 }
 
-function scoreWord(word, rank, nWords, weakSet /* Set<letter> | null */) {
+function scoreWord(word, rank, nWords, weakSet /* Set<letter> | null */, boost = WEAK_WORD_BOOST_AMBIENT) {
   const uniq = [...new Set(word)];
   let w = uniq.reduce((a, ch) => a + weakness(ch), 0) / uniq.length;   // mean letter weakness
   w *= 1 + FREQ_WEIGHT * (1 - rank / nWords);                          // favor common words
-  if (weakSet && weakSet.size) {                                       // boost per weak-key hit (cap 2 hits)
+  if (weakSet && weakSet.size) {
+    // Count OCCURRENCES, not just presence: 'pepper' is worth more practice of 'p'
+    // than 'top' is. Capped so a single freak word can't dominate the line.
     let hits = 0;
-    for (const l of weakSet) if (word.includes(l)) hits += 1;
-    if (hits) w *= Math.min(WEAK_WORD_BOOST ** hits, WEAK_WORD_BOOST ** 2);
+    for (const l of weakSet) for (const ch of word) if (ch === l) hits += 1;
+    if (hits) w *= boost ** Math.min(hits, WEAK_WORD_HIT_CAP);
   }
   const r = recentWords.get(word) || 0;
   return w / (1 + RECENT_WORD_PENALTY * r);                            // breadth
 }
 
-function pickWord(eligible, weakSet) {
+function pickWord(eligible, weakSet, boost = WEAK_WORD_BOOST_AMBIENT) {
   let candidates = eligible;
   if (eligible.length > 1 && lastWord) {
     const noLast = eligible.filter((w) => w !== lastWord);
     if (noLast.length) candidates = noLast;
   }
   const rankOf = new Map(eligible.map((w, i) => [w, i]));   // freq rank = position
-  const weights = candidates.map((w) => scoreWord(w, rankOf.get(w), eligible.length, weakSet));
+  const weights = candidates.map((w) => scoreWord(w, rankOf.get(w), eligible.length, weakSet, boost));
   const chosen = weightedIndex(candidates, weights);
   for (const [k, v] of recentWords) recentWords.set(k, v * RECENT_WORD_DECAY);
   recentWords.set(chosen, (recentWords.get(chosen) || 0) + 1);
@@ -534,10 +545,14 @@ function wordLine(targetChars = WORD_LINE_TARGET_CHARS, weakSet = null) {
   const caps = activePool().caps;
   const w0 = weakestOf(allowed);
   const weak = weakSet ?? (w0 ? new Set([w0]) : null);   // default: single weakest letter (legacy behavior)
+  // Strong pull ONLY for a real adaptive focus set. The legacy fallback above always
+  // names *some* weakest letter even when nothing is actually weak — applying the
+  // remediation boost to it would hammer an arbitrary key and flatten variety.
+  const boost = weakSet ? WEAK_WORD_BOOST : WEAK_WORD_BOOST_AMBIENT;
   const tokens = [];
   let chars = 0; let n = 0;
   while (chars < targetChars && n < WORD_LINE_MAX_WORDS) {
-    const w = pickWord(eligible, weak);
+    const w = pickWord(eligible, weak, boost);
     tokens.push(...wordTokens(w, caps), spaceToken());
     chars += w.length + 1; n += 1;
   }
@@ -800,7 +815,11 @@ function adaptiveLine() {
   const weak = letterFocus.size ? letterFocus : null;
 
   const burstKey = pickBurstKey(focus, probes);
-  if (!burstKey && pseudoRandom() < ADAPT_SENTENCE_P) {
+  // Sentences are served verbatim from the corpus, so they carry NO weak-key bias.
+  // When there's something to remediate, lean toward word lines (which can be
+  // biased); with nothing weak, keep the richer sentence mix for fluency.
+  const sentenceP = weak ? ADAPT_SENTENCE_P_FOCUS : ADAPT_SENTENCE_P;
+  if (!burstKey && pseudoRandom() < sentenceP) {
     const s = sentenceLine(false);
     if (s) return s;
   }

@@ -112,10 +112,29 @@ model). Key pieces in `engine.js`:
   rare one; `weakest()` (the panel) sorts by `impact` too. `adaptiveLine()` =
   weak-letter-biased `wordLine()` + `sentenceLine`
   + `spliceAtSpace(burstTokens(k))` for a focus/probe key words can't cover (digits,
-  symbols, `z`/`q`; `pickBurstKey` cadence). ~90% content, ≤10% drill. Mastery still
+  symbols, `z`/`q`; `pickBurstKey` cadence). Mastery still
   accrues (display/continuity) but does **not** gate. HUD slot shows focus keys, not
-  ETA. Summary uses `sessionKeyDeltas()` ("Improved this session"). Not in
+  ETA. **Focus is computed ONCE PER LINE and cached** in `app.js currentFocus`
+  (set in `refreshKeyboardMastery`) — `updateHud` runs on a 250ms tick, and
+  recomputing focus there made threshold-adjacent keys flicker at 4Hz, which read as
+  "the focus keys keep changing". Never call `adaptiveFocus()` from a tick handler. Summary uses `sessionKeyDeltas()` ("Improved this session"). Not in
   `FLUENCY_MODES` (so `checkProgress` still marks mastery) but in `FULL_POOL_MODES`.
+- **Remediation intensity (measured, not guessed — research/11)**: being "in focus" used
+  to be nearly cosmetic — a focus letter went 1.65% → 2.32% of typed chars (+41%, ≈6
+  extra reps a session). Three compounding causes: `WEAK_WORD_BOOST` was 1.5 capped at
+  2 hits; ~30% of lines are verbatim sentences carrying **zero** bias; and the 260-word
+  corpus held only 18 words containing `p` (1 for `j`, 0 for `q`/`z`). Now: corpus
+  **2000 words** (`words.js`, `/^[a-z]{1,12}$/`; `p` 374, `q` 0→39, `j` 1→39),
+  `WEAK_WORD_BOOST = 9` counting **occurrences** (so `pepper` > `top`; capped by
+  `WEAK_WORD_HIT_CAP = 3`), and `ADAPT_SENTENCE_P_FOCUS = 0.15` replacing
+  `ADAPT_SENTENCE_P` while a focus set exists. Measured: **2.65% → 16.62% (+527%)**,
+  with 83% of a session's words still distinct.
+  **Trap:** `wordLine`'s legacy fallback names *some* weakest letter even when nothing
+  is weak; applying the 9× boost there hammered an arbitrary key (healthy `p` drifted to
+  4.01%). The boost is therefore **threaded**: `WEAK_WORD_BOOST` only when a real
+  `weakSet` is passed in, `WEAK_WORD_BOOST_AMBIENT` (1.5) otherwise — ramp/caps callers
+  keep ambient. `WEAK_WORD_BOOST` is the single intensity dial (1.5→~3.5%, 6→~10%,
+  9→~17%).
 - **Curriculum & levels (Beginner course)**: `STAGES` in `engine.js`.
   `settings.levelChoice` ∈ `'adaptive' | 'auto' | '<stageIndex>' | 'all' | 'words' |
   'sentences'`. A stage (row) is completed only when all its keys are individually

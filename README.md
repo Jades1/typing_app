@@ -13,12 +13,15 @@ No build step, no dependencies. Open `index.html` in a browser and start typing.
 
 - **Adaptive mode (default)** — type real words and sentences from the start; the
   app watches your recent per-key error rate and speed, identifies the **≤3 keys
-  you're actually weak on**, and remediates them surgically: it biases word choice
-  toward words containing your weak *letters*, and splices short **targeted bursts**
-  for keys real words can't cover (numbers, symbols, and rare letters like `z`/`q`).
-  ~90% real content, ≤10% drill; recovered keys drop out of focus automatically, so
-  it never over-drills what you've already got. The HUD shows your current focus
-  keys; the end-of-session summary reports which keys **improved**.
+  you're actually weak on**, and remediates them hard: word choice is pulled
+  strongly toward words containing your weak *letters* — a focus letter goes from
+  ~2.6% to **~17% of everything you type**, about a 6× dose — and short **targeted
+  bursts** cover keys real words can't (numbers, symbols, rare letters like `z`/`q`).
+  Practice stays real English throughout: a 2,000-word corpus keeps ~83% of the
+  words in a session distinct even under heavy targeting. Recovered keys drop out
+  of focus automatically, so it never over-drills what you've already got. The HUD
+  shows your current focus keys; the end-of-session summary reports which keys
+  **improved**.
 - **Deliberate rounds for Capitals, Numbers, Symbols, and Special keys** — each of
   those levels teaches its keys a few at a time, heavily over-exposed **woven inside
   real words** (Capitals Title-case `Here Hill Show So About`; Numbers `Room 747 has

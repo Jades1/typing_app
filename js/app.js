@@ -52,6 +52,12 @@ let tokenEls = [];
 let pointer = 0;
 let lastResolveTs = 0;
 let session = null;
+// Adaptive focus keys, recomputed once per generated LINE (see refreshFocus).
+// The HUD ticks 4x/second; recomputing focus on every tick made keys near the
+// weak threshold visibly flicker, which read as "the focus keys keep changing"
+// even when the underlying measurement was steady. Focus data only meaningfully
+// changes when a line's worth of new keystrokes lands, so cache it there.
+let currentFocus = [];
 
 const MODIFIER_KEYS = new Set(['Shift', 'Control', 'Alt', 'Meta', 'CapsLock']);
 
@@ -109,11 +115,17 @@ function nextLine() {
   Stats.save();
 }
 
+// The ONLY place the adaptive focus set is recomputed. Called once per generated
+// line (every path that builds a line calls this), so `currentFocus` is refreshed
+// exactly when the underlying data can have changed. Everything that *displays*
+// focus reads the cache rather than calling adaptiveFocus() itself — the keyboard
+// ring and the HUD therefore always agree, and neither flickers at tick rate.
 function refreshKeyboardMastery() {
   const lc = Stats.getSettings().levelChoice;
+  currentFocus = lc === 'adaptive' ? Engine.adaptiveFocus().focus : [];
   if (lc === 'shortcuts') { Keyboard.updateMastery({}, null); return; }
   let ring;
-  if (lc === 'adaptive') ring = Engine.adaptiveFocus().focus;
+  if (lc === 'adaptive') ring = currentFocus;
   else { const ramp = Engine.acquisitionRamp(); ring = ramp ? ramp.active : Engine.targetKey(); }
   Keyboard.updateMastery(Engine.confidenceMap(), ring);
 }
@@ -408,7 +420,7 @@ function updateHud(live) {
     els.nextLabel.textContent = 'Known';
     els.next.textContent = `${p.known} / ${p.total}`;
   } else if (lc === 'adaptive') {
-    const f = Engine.adaptiveFocus().focus;
+    const f = currentFocus;                       // cached per line, not per 250ms tick
     els.nextLabel.textContent = 'Focus';
     els.next.textContent = f.length ? f.map(labelForKey).join(' ') : '—';
   } else if (Engine.acquisitionRamp()) {          // Numbers / Symbols / Special-keys round

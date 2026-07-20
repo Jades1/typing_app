@@ -29,6 +29,7 @@ whenever we research or decide something.
 | [08](08-key-importance-weighting.md) | Rank what-to-work-on by **impact = weakness × usage frequency** (a weak common `p` beats a weak rare `$`) | Improving a common key pays off across all typing; a rare key barely moves the needle | ANECDOTAL (letter-freq data) | **Built** |
 | [09](09-deliberate-nonletter-acquisition.md) | **Progressive over-exposure ramp** for capitals/numbers/symbols/specials (a few at a time, woven into words) until mastered | Rare-but-needed keys require deliberate over-practice, not frequency-weighted neglect | derived from 02 + 06 + 08 | **Built** |
 | [10](10-mac-shortcuts-practice.md) | **Mac shortcuts mode** — produce the combo + multiple-choice "what does it do"; dangerous/OS-level ones are quiz-only | Many shortcuts can't be safely fired in a browser; MC is gradeable + safe | design decision | **Built** |
+| [11](11-remediation-intensity.md) | **Remediation must actually bias what you type**: corpus 260→2000 words, `WEAK_WORD_BOOST` 1.5→9 counting occurrences, fewer sentence lines while remediating | Being "in focus" moved a letter only 1.65%→2.32% of typed chars (≈6 extra reps/session); corpus size, not the constant, was the binding limit | MEASURED (in-app instrumentation) | **Built** |
 
 ## Status legend
 **Adopted** = in the app · **Proposed** = decided, not yet built · **Open /
