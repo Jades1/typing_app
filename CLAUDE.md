@@ -49,6 +49,23 @@ model). Key pieces in `engine.js`:
   check; this global gate is unchanged.) **Specials:** speed waived (no
   latency). Base constants live in `stats.js`; the per-category thresholds live in
   `gateFor` in `engine.js`.
+- **Two evidence spans, one buffer** (the churn fix): `recent[]` stores up to
+  `RECENT_MAX` (200), but `recentStats(keyId, n = RECENT_WINDOW)` reads back only the
+  last `n` — so each consumer picks its own span.
+  **`RECENT_WINDOW` is a count of ATTEMPTS, not a span of time**, and letter frequency
+  varies ~180×: at 30 attempts `e` was judged on ~80 seconds of typing while `z` was
+  judged on ~50 sessions. That mismatch is why adaptive focus keys churned. So
+  `adaptiveFocus()` — and *only* it — reads `focusWindow(id)`, which scales the span by
+  `importance()` to ≈`FOCUS_SESSIONS` (5) sessions, clamped `[15, RECENT_MAX]` (the
+  floor must exceed `ADAPT_MIN_ATTEMPTS`; the extremes can't be evened out without
+  unbounded memory). Measured effect: focus-set changes over ~5 simulated sessions
+  dropped 11 → 5.
+  **Trap:** `recentStats()` defaults to the *mastery* span. The gate,
+  `nextKeyEta`, `rampReady`, and `sessionKeyDeltas` are all calibrated against 30
+  (`MASTERY_MIN_ATTEMPTS` is "20 of the last 30"; `engine.js` scales tolerated errors
+  by `RECENT_WINDOW`) — **do not widen them**. Pass a span explicitly only for
+  selection/ranking. Note `weakness()` uses *lifetime* stats and needs no window.
+  No migration was required: short existing buffers are valid and just grow.
 - **Sticky mastery**: once graduated a key stays graduated (`markMastered`, a
   persisted flag). A later slip is handled by ordinary weakness re-emphasis in the
   rotation — it does **not** re-become the target, so the curriculum never stalls.
@@ -86,7 +103,9 @@ model). Key pieces in `engine.js`:
 - **Adaptive mode (DEFAULT, research/07)**: `settings.levelChoice === 'adaptive'`.
   Content-first: full keyboard, no key-introduction order, real words/sentences.
   `adaptiveFocus()` → `{focus, probes}`: `focus` = ≤`ADAPT_FOCUS_N` keys measuring
-  weak over the recent window (≥`ADAPT_ERR_WEAK` errors or ≥`ADAPT_LAT_WEAK`× your
+  weak over the **frequency-normalized `focusWindow(id)` span** (~5 sessions per key,
+  NOT the 30-attempt mastery window — see "Two evidence spans" above)
+  (≥`ADAPT_ERR_WEAK` errors or ≥`ADAPT_LAT_WEAK`× your
   median latency, with ≥`ADAPT_MIN_ATTEMPTS` data); `probes` = under-sampled/stale
   digits+symbols. Focus is ranked by `impact(k) = weakness(k) × importance(k)`
   (`importance` = key usage frequency, research/08) so a weak common key beats a weak
@@ -156,7 +175,7 @@ model). Key pieces in `engine.js`:
 Key `typing_app_v1`; `version: 3`. Migrations in `stats.js migrate()`: v1→v2 adds
 `recent[]` + seeds `mastered` from lifetime stats; v2→v3 makes `'adaptive'` the
 default (flips only barely-started `'auto'` users; adds `adaptiveNoticeShown`).
-Per-key `recent` is a ring buffer (max `RECENT_WINDOW`): `>0` = correct latency ms,
+Per-key `recent` is a ring buffer (max `RECENT_MAX` = 200): `>0` = correct latency ms,
 `0` = correct w/o latency (specials), `-1` = error.
 
 `{ version:3, seenCounter,
@@ -175,6 +194,14 @@ fast (it graduates, a notification fires, the next key becomes the target).
 
 ## Deploy
 
-Intended for GitHub Pages (static, deploy from `main` root) — not yet set up. See
-the parent `Projects/CLAUDE.md` for the Pages build-vs-deploy and cache-busting
-gotchas before deploying.
+**LIVE at https://jades1.github.io/typing_app/** — GitHub Pages, legacy branch-based
+build deploying from `main` root (no workflow file). **A push to `main` publishes.**
+
+See the parent `Projects/CLAUDE.md` for the Pages build-vs-deploy gotcha: verify the
+live URL actually updated (`curl -s '<url>?cb=<ts>' | grep <new-marker>`), and on a
+stuck deploy do **one** empty-commit re-trigger, then wait ~60 min — don't hammer the
+per-repo hourly build limit.
+
+The cache-busting step there does **not** apply: this app has no service worker and no
+manifest, so there are no installed clients holding stale assets — only ordinary
+browser caching of the JS modules.
