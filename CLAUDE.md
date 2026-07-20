@@ -133,8 +133,27 @@ model). Key pieces in `engine.js`:
   is weak; applying the 9× boost there hammered an arbitrary key (healthy `p` drifted to
   4.01%). The boost is therefore **threaded**: `WEAK_WORD_BOOST` only when a real
   `weakSet` is passed in, `WEAK_WORD_BOOST_AMBIENT` (1.5) otherwise — ramp/caps callers
-  keep ambient. `WEAK_WORD_BOOST` is the single intensity dial (1.5→~3.5%, 6→~10%,
-  9→~17%).
+  keep ambient. `WEAK_WORD_BOOST` was the intensity dial — **superseded by research/12**.
+- **Guaranteed exposure (research/12 — supersedes the boost tuning above)**: score-
+  boosting can never reach rare letters. Measured ceilings as *sole* focus key: `e` 30%,
+  `c` 14%, `v` 4.7%, `x` 2.0%, `z` **0.18%** — only ~2% of corpus words contain
+  `z`/`x`/`j`/`q`, so no multiplier helps (and `9^hits` swamped every other term in
+  `scoreWord`, making the base a no-op). Exposure is now **stated and enforced**:
+  `enforceFocusDose()` tops each focus key up to `FOCUS_REPS_PER_LINE` (3) per word line
+  via `focusBurst(key, n)` (companion-interleaved — spaced, not massed);
+  `enforceCoverage()` forces the stalest **letter** in after `COVERAGE_MAX_GAP` (400)
+  keystrokes so nothing becomes unmeasurable. `WEAK_WORD_BOOST` back to 1.5.
+  **Coverage is letters-only on purpose:** one forced key per line across all ~102 pool
+  keys = ~3300-keystroke rotation, so a symbol would need ~30 sessions to reach
+  `ADAPT_MIN_ATTEMPTS` — visible but never measurable. a–z rotates in ~830. Digits/
+  symbols use the stronger `pickBurstKey` probe path + the deliberate rounds.
+  **Sentence lines carry NO dose** (verbatim) — "guaranteed" means *on word lines*.
+  **KNOWN GAP:** this fixes *how much*, not *which*. On a real profile (`z` 23%, `v` 16%,
+  `x` 16%, `c` 15%, `e` 10%) focus is still `[e, s, c]` — `impact = weakness × importance`
+  buries rare keys, and `s` enters on the *slow* criterion at 8% while `z` at 23% does
+  not. Fallbacks are written up in research/12 §"Alternative paths" (dampen importance
+  via `sqrt`; reserve a slot for worst raw error rate; user-defined importance /
+  exempt list). **Read that before re-tuning anything here.**
 - **Curriculum & levels (Beginner course)**: `STAGES` in `engine.js`.
   `settings.levelChoice` ∈ `'adaptive' | 'auto' | '<stageIndex>' | 'all' | 'words' |
   'sentences'`. A stage (row) is completed only when all its keys are individually

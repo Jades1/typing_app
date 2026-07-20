@@ -30,6 +30,7 @@ whenever we research or decide something.
 | [09](09-deliberate-nonletter-acquisition.md) | **Progressive over-exposure ramp** for capitals/numbers/symbols/specials (a few at a time, woven into words) until mastered | Rare-but-needed keys require deliberate over-practice, not frequency-weighted neglect | derived from 02 + 06 + 08 | **Built** |
 | [10](10-mac-shortcuts-practice.md) | **Mac shortcuts mode** — produce the combo + multiple-choice "what does it do"; dangerous/OS-level ones are quiz-only | Many shortcuts can't be safely fired in a browser; MC is gradeable + safe | design decision | **Built** |
 | [11](11-remediation-intensity.md) | **Remediation must actually bias what you type**: corpus 260→2000 words, `WEAK_WORD_BOOST` 1.5→9 counting occurrences, fewer sentence lines while remediating | Being "in focus" moved a letter only 1.65%→2.32% of typed chars (≈6 extra reps/session); corpus size, not the constant, was the binding limit | MEASURED (in-app instrumentation) | **Built** |
+| [12](12-guaranteed-exposure.md) | **Guaranteed exposure**: each focus key >=3x per word line (`FOCUS_REPS_PER_LINE`), stalest letter forced in every `COVERAGE_MAX_GAP`; `WEAK_WORD_BOOST` back to ambient | Score-boosting can't reach rare letters at any multiplier (only ~2% of words contain `z`/`x`/`j`/`q`); exposure must be stated, not emergent | MEASURED (in-app instrumentation) | **Built** — see "Alternative paths" for fallbacks |
 
 ## Status legend
 **Adopted** = in the app · **Proposed** = decided, not yet built · **Open /

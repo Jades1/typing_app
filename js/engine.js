@@ -41,10 +41,25 @@ const FREQ_WEIGHT = 0.6;            // frequency-rank boost in word scoring
 // weak key in front of you, at the cost of drawing from a narrower slice of the
 // corpus. Measured effect on a focus letter's share of typed characters (2000-word
 // corpus): 1.5 -> ~3.5%, 6 -> ~10%, 9 -> ~13%. Untargeted baseline for 'p' is ~2.6%.
-const WEAK_WORD_BOOST = 9;          // per occurrence of a focus letter in the word
+// Word-selection nudge toward focus letters. Deliberately GENTLE: exposure is now
+// guaranteed by count (see enforceFocusDose), not by score-boosting. A large boost
+// here was measured to be both redundant and distorting — it swamped every other
+// term in scoreWord while still leaving rare letters at ~0% (words can't supply them).
+const WEAK_WORD_BOOST = 1.5;        // per occurrence of a focus letter in the word
 const WEAK_WORD_HIT_CAP = 3;        // ceiling on counted occurrences per word
-const WEAK_WORD_BOOST_AMBIENT = 1.5;  // gentle legacy pull toward the single weakest letter,
-                                      // used when there is no real focus set to remediate
+const WEAK_WORD_BOOST_AMBIENT = 1.5;  // pull toward the single weakest letter when no focus set
+
+// --- guaranteed exposure ------------------------------------------------------
+// Exposure used to be an emergent side effect of word scoring, which is why it was
+// so hard to move: measured ceilings via words alone were e 30%, c 14%, v 4.7%,
+// x 2.0%, z 0.18% — the rare letters that most need work were unreachable at ANY
+// multiplier, because only ~2% of corpus words contain them. So state the dose
+// directly and top up with a short spaced burst when words can't deliver it.
+const FOCUS_REPS_PER_LINE = 3;      // each focus key appears >= this many times per line
+const COVERAGE_MAX_GAP = 400;       // keystrokes a pool key may go unseen before it is
+                                    // forced into a line — keeps every key MEASURABLE,
+                                    // not just practiced (a key never shown is a key
+                                    // whose stats rot and whose weakness is invisible)
 const RECENT_WORD_DECAY = 0.55;
 const RECENT_WORD_PENALTY = 1.8;
 const SENTENCE_NO_REPEAT = 5;
@@ -716,6 +731,55 @@ function burstTokens(keyId) {
   return out;
 }
 
+// n instances of keyId, interleaved with companions so the dose is SPACED rather
+// than massed (blocked repetition trains worse — research/01). Works for letters,
+// digits and symbols alike; unlike burstTokens() the size is caller-specified, so
+// we can top a line up by exactly the shortfall.
+function focusBurst(keyId, n) {
+  const pool = activePool();
+  const companions = pool.letters.filter((l) => l !== keyId);
+  const out = [];
+  for (let i = 0; i < n; i += 1) {
+    if (i && companions.length) {
+      out.push(charToken(companions[Math.floor(pseudoRandom() * companions.length)]));
+    }
+    out.push(charToken(keyId));
+  }
+  return out;
+}
+
+// Guarantee every focus key actually appears FOCUS_REPS_PER_LINE times. Words supply
+// what they can (common letters usually clear the bar unaided); the shortfall is
+// spliced in. This is what makes remediation independent of corpus coverage.
+function enforceFocusDose(tokens, focus) {
+  for (const k of focus) {
+    const have = tokens.reduce((a, t) => a + (t.keyId === k ? 1 : 0), 0);
+    const need = FOCUS_REPS_PER_LINE - have;
+    if (need > 0) spliceAtSpace(tokens, focusBurst(k, need));
+  }
+}
+
+// Nothing goes unmeasured: the single stalest pool key gets forced into the line
+// once it has been unseen for COVERAGE_MAX_GAP keystrokes. One per line keeps the
+// text readable while ensuring no key can silently drop out of the rotation.
+function enforceCoverage(tokens) {
+  // LETTERS ONLY, deliberately. One forced key per line is a scarce slot: spread
+  // across all ~102 pool keys a full rotation takes ~3300 keystrokes, so a symbol
+  // would reach ADAPT_MIN_ATTEMPTS only after ~30 sessions — visible but never
+  // measurable. Restricted to a-z the rotation is ~830 keystrokes (~1 session).
+  // Digits/symbols are better served by the existing pickBurstKey probe path (3
+  // instances at a time, not 1) and by the deliberate Numbers/Symbols rounds.
+  const ids = activePool().letters;
+  let worst = null; let worstGap = COVERAGE_MAX_GAP;
+  for (const k of ids) {
+    const gap = Stats.timesSinceSeen(k);
+    if (gap > worstGap) { worst = k; worstGap = gap; }
+  }
+  if (worst && !tokens.some((t) => t.keyId === worst)) {
+    spliceAtSpace(tokens, focusBurst(worst, 1));
+  }
+}
+
 function spliceAtSpace(tokens, burst) {
   let best = -1; const mid = tokens.length / 2;
   for (let i = 0; i < tokens.length; i++) {
@@ -827,6 +891,9 @@ function adaptiveLine() {
   const tokens = wordLine(targetChars, weak);
   if (burstKey) spliceAtSpace(tokens, burstTokens(burstKey));
   else sprinkleDigits(tokens);
+  // Words first, then top up to the guaranteed dose, then backfill anything stale.
+  enforceFocusDose(tokens, focus);
+  enforceCoverage(tokens);
   return tokens;
 }
 
