@@ -56,6 +56,13 @@ const WEAK_WORD_BOOST_AMBIENT = 1.5;  // pull toward the single weakest letter w
 // multiplier, because only ~2% of corpus words contain them. So state the dose
 // directly and top up with a short spaced burst when words can't deliver it.
 const FOCUS_REPS_PER_LINE = 3;      // each focus key appears >= this many times per line
+// Fade-out, not a cliff. A key that clears the weak threshold used to drop straight
+// back to baseline exposure the same line — which is very likely a cause of relapse
+// (a key re-entering focus repeatedly is support withdrawn too abruptly, not
+// necessarily too small a dose). Support now decays over FADE_WINDOW keystrokes.
+const FADE_WINDOW = 1200;           // keystrokes of tapering support after leaving focus
+const FADE_REPS_START = 2;          // reps/line immediately after graduating
+const FADE_REPS_END = 1;            // reps/line at the end of the taper
 const COVERAGE_MAX_GAP = 400;       // keystrokes a pool key may go unseen before it is
                                     // forced into a line — keeps every key MEASURABLE,
                                     // not just practiced (a key never shown is a key
@@ -752,10 +759,42 @@ function focusBurst(keyId, n) {
 // what they can (common letters usually clear the bar unaided); the shortfall is
 // spliced in. This is what makes remediation independent of corpus coverage.
 function enforceFocusDose(tokens, focus) {
-  for (const k of focus) {
-    const have = tokens.reduce((a, t) => a + (t.keyId === k ? 1 : 0), 0);
-    const need = FOCUS_REPS_PER_LINE - have;
+  const doses = new Map();
+  for (const k of focus) doses.set(k, FOCUS_REPS_PER_LINE);
+  // Keys that recently graduated keep tapering support (see FADE_WINDOW).
+  for (const k of fadingKeys()) if (!doses.has(k)) doses.set(k, fadeReps(k));
+  for (const [k, want] of doses) {
+    // Count capitals too — 'C' and 'c' are the same key for dosing purposes.
+    const up = /^[a-z]$/.test(k) ? k.toUpperCase() : null;
+    const have = tokens.reduce((a, t) => a + (t.keyId === k || (up && t.keyId === up) ? 1 : 0), 0);
+    const need = want - have;
     if (need > 0) spliceAtSpace(tokens, focusBurst(k, need));
+  }
+}
+
+// Keys inside the post-focus taper window.
+function fadingKeys() {
+  const out = [];
+  for (const id of activePool().letters) {
+    const since = Stats.sinceFocusEnded(id);
+    if (since < FADE_WINDOW) out.push(id);
+  }
+  return out;
+}
+
+// Linear taper from FADE_REPS_START down to FADE_REPS_END across FADE_WINDOW.
+function fadeReps(keyId) {
+  const since = Stats.sinceFocusEnded(keyId);
+  const t = Math.max(0, Math.min(1, since / FADE_WINDOW));
+  return Math.max(FADE_REPS_END, Math.round(FADE_REPS_START - t * (FADE_REPS_START - FADE_REPS_END)));
+}
+
+// Open/close focus episodes as the focus set changes. Called once per generated line.
+function syncFocusEpisodes(focus) {
+  const now = new Set(focus);
+  for (const k of focus) Stats.openEpisode(k, Stats.recentStats(k, focusWindow(k)).errRate);
+  for (const k of Stats.openFocusKeys()) {
+    if (!now.has(k)) Stats.closeEpisode(k, Stats.recentStats(k, focusWindow(k)).errRate);
   }
 }
 
@@ -892,6 +931,7 @@ function adaptiveLine() {
   if (burstKey) spliceAtSpace(tokens, burstTokens(burstKey));
   else sprinkleDigits(tokens);
   // Words first, then top up to the guaranteed dose, then backfill anything stale.
+  syncFocusEpisodes(focus);
   enforceFocusDose(tokens, focus);
   enforceCoverage(tokens);
   return tokens;
@@ -1219,6 +1259,31 @@ export function sessionKeyDeltas(minReps = 6) {
     if (score > 0.15) out.push({ keyId: id, errDelta, latDelta, score });
   }
   return out.sort((a, b) => b.score - a.score).slice(0, 3);
+}
+
+// Did remediation actually work? Per key that has completed >=1 focus episode:
+//   improved  — mean (errIn - errOut) across episodes; positive = fewer errors after
+//   relapses  — episode count; >1 means it re-entered focus after graduating
+//   reps      — mean attempts delivered per episode (was the dose real?)
+// Relapse with HIGH reps => dose fine, released too early (widen FADE_WINDOW or the
+// exit threshold). Relapse with LOW reps => dose too thin (raise FOCUS_REPS_PER_LINE
+// or lower ADAPT_FOCUS_N so fewer keys share the line budget).
+export function focusOutcomes() {
+  const out = [];
+  for (const id of Object.keys(Stats.getState().keys)) {
+    const eps = Stats.episodes(id);
+    if (!eps.length) continue;
+    const n = eps.length;
+    out.push({
+      keyId: id,
+      episodes: n,                                        // retained history (capped)
+      focusCount: Stats.keyStat(id).focusCount || n,      // lifetime relapse count
+      improved: eps.reduce((a, e) => a + (e.errIn - e.errOut), 0) / n,
+      meanReps: eps.reduce((a, e) => a + e.reps, 0) / n,
+      lastErrOut: eps[n - 1].errOut,
+    });
+  }
+  return out.sort((a, b) => b.focusCount - a.focusCount || a.improved - b.improved);
 }
 
 export function stageLabel() {

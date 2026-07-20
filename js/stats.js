@@ -21,9 +21,13 @@ export const MASTERY_MAX_ERR = 0.05;       // recent error-rate ceiling
 const SPECIAL_IDS = new Set(SPECIAL_KEYS.map((s) => s.id));
 
 const DEFAULT_STATE = () => ({
-  version: 3,
+  version: 4,
   seenCounter: 0,           // monotonic keystroke counter, drives recency
-  keys: {},                 // keyId -> { attempts, errors, sumLatencyMs, samples, lastSeen, recent, mastered, masteredAt }
+  keys: {},                 // keyId -> { attempts, errors, sumLatencyMs, samples, lastSeen, recent, mastered, masteredAt, episodes }
+  // Open focus episodes: keyId -> { in, errIn, attemptsIn }. Closed ones move to
+  // keys[id].episodes. This is the app's ONLY outcome metric — it answers "did
+  // being focused actually help?" and "is this key repeatedly relapsing?".
+  focusOpen: {},
   sessions: [],             // { date:'YYYY-MM-DD', ts, durationMs, chars, correct, wpm, accuracy }
   settings: {
     sessionMinutes: 5,
@@ -87,6 +91,17 @@ function migrate() {
     if (state.settings.adaptiveNoticeShown === undefined) state.settings.adaptiveNoticeShown = false;
     state.version = 3;
   }
+  // v3 → v4: focus-episode instrumentation (research/13). Purely additive — existing
+  // users start with an empty history and accumulate from their next session. There is
+  // deliberately NO back-fill: we never observed past focus episodes, and inventing
+  // them would poison the only outcome metric the app has.
+  if (state.version < 4) {
+    if (!state.focusOpen || typeof state.focusOpen !== 'object') state.focusOpen = {};
+    for (const id of Object.keys(state.keys)) {
+      if (!Array.isArray(state.keys[id].episodes)) state.keys[id].episodes = [];
+    }
+    state.version = 4;
+  }
   save();
 }
 
@@ -106,13 +121,54 @@ export function setSetting(key, value) { state.settings[key] = value; save(); }
 
 function ensureKey(keyId) {
   if (!state.keys[keyId]) {
-    state.keys[keyId] = { attempts: 0, errors: 0, sumLatencyMs: 0, samples: 0, lastSeen: 0, recent: [], mastered: false, masteredAt: 0 };
+    state.keys[keyId] = { attempts: 0, errors: 0, sumLatencyMs: 0, samples: 0, lastSeen: 0, recent: [], mastered: false, masteredAt: 0, episodes: [] };
   }
+  if (!Array.isArray(state.keys[keyId].episodes)) state.keys[keyId].episodes = [];
   return state.keys[keyId];
 }
 
 export function keyStat(keyId) {
-  return state.keys[keyId] || { attempts: 0, errors: 0, sumLatencyMs: 0, samples: 0, lastSeen: 0, recent: [], mastered: false, masteredAt: 0 };
+  return state.keys[keyId] || { attempts: 0, errors: 0, sumLatencyMs: 0, samples: 0, lastSeen: 0, recent: [], mastered: false, masteredAt: 0, episodes: [] };
+}
+
+// --- focus episodes (the outcome metric) --------------------------------------
+// An episode spans one continuous stretch of a key being a focus key. We record the
+// error rate and attempt count at entry and at exit, so we can answer:
+//   did it improve?      errIn - errOut
+//   was the dose real?   reps (attempts delivered during the episode)
+//   is it relapsing?     how many episodes this key has accumulated
+export const EPISODES_MAX = 10;       // per key, ring-buffered
+
+export function openEpisode(keyId, errRate) {
+  if (state.focusOpen[keyId]) return;
+  state.focusOpen[keyId] = { in: state.seenCounter, errIn: errRate, attemptsIn: keyStat(keyId).attempts };
+}
+
+export function closeEpisode(keyId, errRate) {
+  const open = state.focusOpen[keyId];
+  if (!open) return;
+  delete state.focusOpen[keyId];
+  const k = ensureKey(keyId);
+  k.episodes.push({
+    in: open.in, errIn: open.errIn, attemptsIn: open.attemptsIn,
+    out: state.seenCounter, errOut: errRate, reps: k.attempts - open.attemptsIn,
+  });
+  // episodes[] is ring-buffered for storage, but RELAPSE COUNT must not saturate —
+  // "how many times has this key come back" is the whole point of the metric, and a
+  // heavy relapser hits EPISODES_MAX quickly (z reached 10 in one simulated run).
+  k.focusCount = (k.focusCount || 0) + 1;
+  if (k.episodes.length > EPISODES_MAX) k.episodes.shift();
+}
+
+export function openFocusKeys() { return Object.keys(state.focusOpen); }
+export function episodes(keyId) { return keyStat(keyId).episodes || []; }
+
+// Keystrokes since this key last LEFT focus (Infinity if it never has). Drives the
+// fade-out: support is withdrawn gradually rather than at a cliff.
+export function sinceFocusEnded(keyId) {
+  const eps = episodes(keyId);
+  if (!eps.length) return Infinity;
+  return state.seenCounter - eps[eps.length - 1].out;
 }
 
 // Record one attempt at a key. `latencyMs` is optional (specials may omit it).

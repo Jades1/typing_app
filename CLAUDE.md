@@ -154,6 +154,25 @@ model). Key pieces in `engine.js`:
   not. Fallbacks are written up in research/12 §"Alternative paths" (dampen importance
   via `sqrt`; reserve a slot for worst raw error rate; user-defined importance /
   exempt list). **Read that before re-tuning anything here.**
+- **Outcome metric — focus episodes (research/13, schema v4)**: the app now measures
+  whether remediation *worked*, not just whether it happened. `syncFocusEpisodes()` runs
+  per line and diffs the focus set: entry records `{in, errIn, attemptsIn}`, exit records
+  `{out, errOut, reps}` into `keys[id].episodes` (ring-buffered at `EPISODES_MAX`=10),
+  and bumps `keys[id].focusCount` (**lifetime, never trimmed** — relapse count is the
+  point and must not saturate). Read it with `Engine.focusOutcomes()`.
+  **Interpret the COMBINATION, not either half:** relapse + *high* reps = dose fine,
+  released too early (widen `FADE_WINDOW`/exit threshold); relapse + *low* reps = dose
+  too thin (raise `FOCUS_REPS_PER_LINE` or lower `ADAPT_FOCUS_N`).
+  **Fade-out, not a cliff:** a graduated key keeps tapering support over `FADE_WINDOW`
+  (1200 keystrokes), `FADE_REPS_START` 2 → `FADE_REPS_END` 1, via `fadingKeys()`/
+  `fadeReps()` merged into `enforceFocusDose`. Abrupt withdrawal is a plausible *cause*
+  of relapse and would otherwise be misdiagnosed as too small a dose.
+  **Trap:** the v3→v4 migration deliberately does **NOT** back-fill episodes — we never
+  observed past ones and fabricating them would poison the only outcome metric there is.
+  **Trap:** dose counting must include capitals (`C` counts toward `c`); missing this
+  silently over-delivered bursts.
+  **`ADAPT_FOCUS_N` stays 3 on purpose** — changing two levers at once makes the metric
+  uninterpretable. Get real session data before tuning anything here.
 - **Curriculum & levels (Beginner course)**: `STAGES` in `engine.js`.
   `settings.levelChoice` ∈ `'adaptive' | 'auto' | '<stageIndex>' | 'all' | 'words' |
   'sentences'`. A stage (row) is completed only when all its keys are individually
@@ -210,14 +229,17 @@ model). Key pieces in `engine.js`:
 
 ## Data model (`localStorage`)
 
-Key `typing_app_v1`; `version: 3`. Migrations in `stats.js migrate()`: v1→v2 adds
+Key `typing_app_v1`; `version: 4`. Migrations in `stats.js migrate()`: v1→v2 adds
 `recent[]` + seeds `mastered` from lifetime stats; v2→v3 makes `'adaptive'` the
-default (flips only barely-started `'auto'` users; adds `adaptiveNoticeShown`).
+default (flips only barely-started `'auto'` users; adds `adaptiveNoticeShown`); v3→v4
+adds focus-episode instrumentation (`focusOpen`, per-key `episodes[]` + `focusCount`) —
+purely additive, and deliberately **not** back-filled (research/13).
 Per-key `recent` is a ring buffer (max `RECENT_MAX` = 200): `>0` = correct latency ms,
 `0` = correct w/o latency (specials), `-1` = error.
 
-`{ version:3, seenCounter,
-   keys:{ id:{attempts,errors,sumLatencyMs,samples,lastSeen, recent:[…], mastered, masteredAt} },
+`{ version:4, seenCounter, focusOpen:{ id:{in,errIn,attemptsIn} },
+   keys:{ id:{attempts,errors,sumLatencyMs,samples,lastSeen, recent:[…], mastered, masteredAt,
+              episodes:[{in,errIn,attemptsIn,out,errOut,reps}], focusCount} },
    sessions:[{date,ts,durationMs,chars,correct,attempts,errors,wpm,accuracy}],
    settings:{ sessionMinutes, stage, levelChoice, strictMode, theme, dailyGoalMinutes, showFingers, adaptiveNoticeShown } }`
 
